@@ -88,7 +88,10 @@ Route::middleware(['auth', 'verified'])->prefix('frontoffice')->name('frontoffic
     Route::get('/', [\App\Http\Controllers\FrontOfficeController::class, 'index'])->name('index');
     Route::get('/room-grid', [\App\Http\Controllers\FrontOfficeController::class, 'roomGrid'])->name('room-grid');
 
-    // Check-in / Check-out (Check-in menggunakan modal pada dashboard)
+    // Reservation (from dashboard for future bookings)
+    Route::post('/reservation', [\App\Http\Controllers\FrontOfficeController::class, 'createReservation'])->name('reservation');
+
+    // Check-in / Check-out (Check-in from room grid)
     Route::post('/check-in', [\App\Http\Controllers\FrontOfficeController::class, 'checkIn'])->name('check-in');
     Route::post('/check-out/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'checkOut'])->name('check-out');
 

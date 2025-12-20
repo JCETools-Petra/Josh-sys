@@ -101,6 +101,72 @@ class FrontOfficeController extends Controller
 
 
     /**
+     * Create reservation for future dates.
+     */
+    public function createReservation(Request $request)
+    {
+        $user = auth()->user();
+        $property = $user->property;
+
+        $validated = $request->validate([
+            'hotel_room_id' => 'required|exists:hotel_rooms,id',
+            'check_in_date' => 'required|date|after_or_equal:today',
+            'check_out_date' => 'required|date|after:check_in_date',
+            'room_rate_per_night' => 'required|numeric|min:0',
+            'adults' => 'required|integer|min:1',
+            'children' => 'nullable|integer|min:0',
+            'source' => 'required|in:walk_in,ota,ta,corporate,government,compliment,house_use,affiliate,online',
+            'ota_name' => 'nullable|string',
+            'ota_booking_id' => 'nullable|string',
+            'special_requests' => 'nullable|string',
+            // Guest information
+            'guest.first_name' => 'required|string|max:255',
+            'guest.last_name' => 'nullable|string|max:255',
+            'guest.email' => 'nullable|email',
+            'guest.phone' => 'required|string|max:20',
+            'guest.id_type' => 'required|in:ktp,passport,sim,other',
+            'guest.id_number' => 'required|string|max:50',
+            'guest.address' => 'nullable|string',
+            'guest.city' => 'nullable|string',
+        ]);
+
+        try {
+            // Calculate charges
+            $room = HotelRoom::findOrFail($validated['hotel_room_id']);
+            $checkIn = Carbon::parse($validated['check_in_date']);
+            $checkOut = Carbon::parse($validated['check_out_date']);
+            $nights = $checkIn->diffInDays($checkOut);
+
+            $totalRoomCharge = $validated['room_rate_per_night'] * $nights;
+            $taxAmount = $totalRoomCharge * 0.10; // 10% tax
+            $serviceCharge = $totalRoomCharge * 0.05; // 5% service charge
+
+            // Get current BAR level from property
+            $barActive = $property->bar_active ?? 'bar_1';
+            $barLevel = (int) str_replace('bar_', '', $barActive);
+
+            $data = array_merge($validated, [
+                'property_id' => $property->id,
+                'total_room_charge' => $totalRoomCharge,
+                'tax_amount' => $taxAmount,
+                'service_charge' => $serviceCharge,
+                'bar_level' => $barLevel,
+                'status' => 'reserved', // Mark as reservation, not checked in yet
+            ]);
+
+            $roomStay = $this->frontOfficeService->createReservation($data);
+
+            return redirect()->route('frontoffice.index')
+                ->with('success', "Reservasi berhasil dibuat! Confirmation Number: {$roomStay->confirmation_number}");
+
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Gagal membuat reservasi: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Process check-in.
      */
     public function checkIn(Request $request)

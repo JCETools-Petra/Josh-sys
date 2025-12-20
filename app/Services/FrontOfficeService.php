@@ -67,6 +67,50 @@ class FrontOfficeService
     }
 
     /**
+     * Create reservation for future dates.
+     */
+    public function createReservation(array $data): RoomStay
+    {
+        return DB::transaction(function () use ($data) {
+            // Find or create guest
+            $guest = $this->findOrCreateGuest($data['guest']);
+
+            // Get the room
+            $room = HotelRoom::findOrFail($data['hotel_room_id']);
+
+            // Create room stay with 'reserved' status
+            $roomStay = RoomStay::create([
+                'property_id' => $data['property_id'],
+                'hotel_room_id' => $room->id,
+                'guest_id' => $guest->id,
+                'room_type_id' => $room->room_type_id,
+                'source' => $data['source'] ?? 'walk_in',
+                'ota_name' => $data['ota_name'] ?? null,
+                'ota_booking_id' => $data['ota_booking_id'] ?? null,
+                'check_in_date' => $data['check_in_date'],
+                'check_out_date' => $data['check_out_date'],
+                'actual_check_in' => null, // Will be set on actual check-in
+                'room_rate_per_night' => $data['room_rate_per_night'],
+                'bar_level' => $data['bar_level'] ?? null,
+                'total_room_charge' => $data['total_room_charge'],
+                'tax_amount' => $data['tax_amount'] ?? 0,
+                'service_charge' => $data['service_charge'] ?? 0,
+                'adults' => $data['adults'] ?? 1,
+                'children' => $data['children'] ?? 0,
+                'special_requests' => $data['special_requests'] ?? null,
+                'status' => 'reserved',
+                'status_changed_at' => now(),
+                'created_by' => auth()->id(),
+            ]);
+
+            // Update guest statistics
+            $guest->updateStatistics();
+
+            return $roomStay;
+        });
+    }
+
+    /**
      * Process check-out for a guest.
      */
     public function checkOut(RoomStay $roomStay, array $data = []): RoomStay

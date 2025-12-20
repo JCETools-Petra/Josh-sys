@@ -41,12 +41,12 @@
 
     <!-- Quick Actions -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <button onclick="showCheckInModal()"
+        <button onclick="showReservationModal()"
            class="bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow p-6 text-center transition">
             <svg class="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
             </svg>
-            <div class="text-lg font-bold">Check-In</div>
+            <div class="text-lg font-bold">Buat Reservasi</div>
         </button>
 
         <a href="{{ route('frontoffice.room-grid') }}"
@@ -161,16 +161,16 @@
     </div>
 </div>
 
-<!-- Check-In Modal -->
-<div id="checkInModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+<!-- Reservation Modal -->
+<div id="reservationModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        <form action="{{ route('frontoffice.check-in') }}" method="POST">
+        <form action="{{ route('frontoffice.reservation') }}" method="POST">
             @csrf
 
             <!-- Modal Header -->
             <div class="bg-blue-600 text-white px-6 py-4 rounded-t-lg flex justify-between items-center sticky top-0">
-                <h2 class="text-xl font-bold">Check-In Tamu Baru</h2>
-                <button type="button" onclick="closeCheckInModal()" class="text-white hover:text-gray-200">
+                <h2 class="text-xl font-bold">Buat Reservasi Baru</h2>
+                <button type="button" onclick="closeReservationModal()" class="text-white hover:text-gray-200">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -256,19 +256,19 @@
 
                 <!-- Stay Information -->
                 <div class="bg-purple-50 border-l-4 border-purple-500 p-4 rounded">
-                    <h3 class="text-lg font-semibold text-purple-900 mb-4">3. Detail Menginap</h3>
+                    <h3 class="text-lg font-semibold text-purple-900 mb-4">3. Detail Reservasi</h3>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Check-In *</label>
-                            <input type="datetime-local" name="check_in_date" id="modal_check_in_date" required
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Tanggal Check-In *</label>
+                            <input type="date" name="check_in_date" id="modal_check_in_date" required
                                 class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-purple-500 focus:border-purple-500"
-                                value="{{ now()->format('Y-m-d\TH:i') }}">
+                                value="{{ now()->addDays(1)->format('Y-m-d') }}">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Check-Out *</label>
-                            <input type="datetime-local" name="check_out_date" id="modal_check_out_date" required
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Tanggal Check-Out *</label>
+                            <input type="date" name="check_out_date" id="modal_check_out_date" required
                                 class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-purple-500 focus:border-purple-500"
-                                value="{{ now()->addDay()->format('Y-m-d\TH:i') }}">
+                                value="{{ now()->addDays(2)->format('Y-m-d') }}">
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Jumlah Malam</label>
@@ -360,14 +360,14 @@
 
             <!-- Modal Footer -->
             <div class="bg-gray-50 px-6 py-4 rounded-b-lg flex justify-end space-x-3 sticky bottom-0">
-                <button type="button" onclick="closeCheckInModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded-lg transition">
+                <button type="button" onclick="closeReservationModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded-lg transition">
                     Batal
                 </button>
                 <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition">
                     <svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                     </svg>
-                    Check-In Sekarang
+                    Simpan Reservasi
                 </button>
             </div>
         </form>
@@ -376,20 +376,20 @@
 
 <script>
 // Modal Functions
-function showCheckInModal() {
-    document.getElementById('checkInModal').classList.remove('hidden');
+function showReservationModal() {
+    document.getElementById('reservationModal').classList.remove('hidden');
     document.body.style.overflow = 'hidden';
 }
 
-function closeCheckInModal() {
-    document.getElementById('checkInModal').classList.add('hidden');
+function closeReservationModal() {
+    document.getElementById('reservationModal').classList.add('hidden');
     document.body.style.overflow = 'auto';
 }
 
 // Close modal when clicking outside
-document.getElementById('checkInModal').addEventListener('click', function(e) {
+document.getElementById('reservationModal').addEventListener('click', function(e) {
     if (e.target === this) {
-        closeCheckInModal();
+        closeReservationModal();
     }
 });
 
