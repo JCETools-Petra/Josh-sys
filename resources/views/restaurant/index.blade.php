@@ -237,5 +237,48 @@ function switchTab(tabName) {
 function showAddMenuItem() {
     alert('Fitur tambah menu item akan segera tersedia!\n\nUntuk saat ini, menu item dapat ditambahkan melalui database atau tinker.');
 }
+
+async function updateOrderStatus(orderId, newStatus) {
+    const statusLabels = {
+        'confirmed': 'dikonfirmasi',
+        'preparing': 'sedang dimasak',
+        'ready': 'siap diantar',
+        'delivered': 'diantar',
+        'completed': 'diselesaikan',
+        'cancelled': 'dibatalkan'
+    };
+
+    if (newStatus === 'cancelled' && !confirm('Yakin ingin membatalkan order ini?')) {
+        return;
+    }
+
+    if (newStatus === 'completed' && !confirm('Yakin order ini sudah selesai?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/restaurant/orders/${orderId}/status`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ status: newStatus })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`✓ Order berhasil ${statusLabels[newStatus] || 'diupdate'}`);
+            window.location.reload();
+        } else {
+            alert('❌ Gagal update status: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Terjadi kesalahan saat update status order');
+    }
+}
 </script>
 </x-app-layout>
