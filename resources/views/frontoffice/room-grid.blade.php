@@ -76,7 +76,7 @@
 
             <div class="relative">
                 <div class="{{ $colorClass }} text-white rounded-lg shadow-lg p-4 cursor-pointer transition-all hover:scale-105"
-                     onclick="showRoomDetail({{ json_encode($room) }})">
+                     onclick="showRoomDetail({{ $room->id }})">
                     <!-- Room Number -->
                     <div class="text-center">
                         <div class="text-3xl font-bold">{{ $room->room_number }}</div>
@@ -217,7 +217,15 @@
 </div>
 
 <script>
-function showRoomDetail(room) {
+// Store all rooms data in a JavaScript object
+const roomsData = {!! json_encode($rooms->keyBy('id')->toArray()) !!};
+
+function showRoomDetail(roomId) {
+    const room = roomsData[roomId];
+    if (!room) {
+        console.error('Room not found:', roomId);
+        return;
+    }
     const modal = document.getElementById('roomDetailModal');
 
     // Basic info
@@ -264,7 +272,7 @@ function showRoomDetail(room) {
         checkinBtn.classList.remove('hidden');
         checkinBtn.onclick = function() {
             closeModal();
-            showCheckInModal(room);
+            showCheckInModal(room.id);
         };
     } else {
         checkinBtn.classList.add('hidden');
@@ -293,6 +301,89 @@ document.getElementById('roomDetailModal').addEventListener('click', function(e)
         closeModal();
     }
 });
+
+// Global variables for check-in modal
+let currentRoomData = null;
+const activeBar = '{{ $barActive }}';
+const allRoomTypes = @json($roomTypes);
+
+// Check-In Modal Functions
+function showCheckInModal(roomId) {
+    try {
+        const room = roomsData[roomId];
+        if (!room) {
+            alert('Data kamar tidak ditemukan!');
+            return;
+        }
+
+        currentRoomData = room;
+
+        // Set room information
+        document.getElementById('modal_selected_room_display').value = 'Kamar ' + room.room_number + ' - ' + (room.room_type?.name || 'Standard');
+        document.getElementById('modal_hotel_room_id').value = room.id;
+
+        // Calculate price
+        updateRoomPrice();
+
+        // Show modal
+        document.getElementById('checkInModal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    } catch (error) {
+        console.error('Error opening check-in modal:', error);
+        alert('Terjadi kesalahan saat membuka form check-in: ' + error.message);
+    }
+}
+
+function updateRoomPrice() {
+    if (!currentRoomData || !currentRoomData.room_type || !currentRoomData.room_type.pricing_rule) {
+        document.getElementById('modal_bar_reference_price').textContent = 'Rp 0';
+        document.getElementById('modal_room_rate_per_night').value = 0;
+        if (typeof window.updateModalSummary === 'function') {
+            window.updateModalSummary();
+        }
+        return;
+    }
+
+    const withBreakfast = document.getElementById('modal_with_breakfast').value === '1';
+    const baseRoomTypeName = currentRoomData.room_type.name;
+    let pricingRule = currentRoomData.room_type.pricing_rule;
+
+    if (withBreakfast) {
+        const breakfastRoomType = allRoomTypes.find(rt =>
+            rt.name.includes(baseRoomTypeName) &&
+            rt.name.toLowerCase().includes('breakfast') &&
+            rt.id !== currentRoomData.room_type.id
+        );
+
+        if (breakfastRoomType && breakfastRoomType.pricing_rule) {
+            pricingRule = breakfastRoomType.pricing_rule;
+        }
+    }
+
+    let referencePrice = 0;
+    switch(activeBar) {
+        case 'bar_1': referencePrice = parseFloat(pricingRule.bar_1 || 0); break;
+        case 'bar_2': referencePrice = parseFloat(pricingRule.bar_2 || 0); break;
+        case 'bar_3': referencePrice = parseFloat(pricingRule.bar_3 || 0); break;
+        case 'bar_4': referencePrice = parseFloat(pricingRule.bar_4 || 0); break;
+        case 'bar_5': referencePrice = parseFloat(pricingRule.bar_5 || 0); break;
+        default: referencePrice = parseFloat(pricingRule.bar_1 || 0);
+    }
+
+    document.getElementById('modal_bar_reference_price').textContent = 'Rp ' + Math.round(referencePrice).toLocaleString('id-ID');
+    document.getElementById('modal_room_rate_per_night').value = Math.round(referencePrice);
+
+    if (typeof window.updateModalSummary === 'function') {
+        window.updateModalSummary();
+    }
+}
+
+function closeCheckInModal() {
+    document.getElementById('checkInModal').classList.add('hidden');
+    document.body.style.overflow = 'auto';
+    document.getElementById('modal_room_rate_per_night').value = '';
+    currentRoomData = null;
+}
 </script>
 
 <!-- Check-In Modal -->
@@ -510,7 +601,7 @@ document.getElementById('roomDetailModal').addEventListener('click', function(e)
                 <button type="button" onclick="closeCheckInModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded-lg transition">
                     Batal
                 </button>
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition">
+                <button type="submit" onclick="console.log('Submit button clicked!')" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition">
                     <svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                     </svg>
@@ -522,98 +613,6 @@ document.getElementById('roomDetailModal').addEventListener('click', function(e)
 </div>
 
 <script>
-// Global variable to store current room data
-let currentRoomData = null;
-const activeBar = '{{ $barActive }}'; // Get active BAR from backend
-
-// All room types with pricing rules for breakfast lookup
-const allRoomTypes = @json($roomTypes);
-
-// Modal Functions for Check-In
-function showCheckInModal(room) {
-    currentRoomData = room;
-
-    // Set room information
-    document.getElementById('modal_selected_room_display').value = 'Kamar ' + room.room_number + ' - ' + (room.room_type?.name || 'Standard');
-    document.getElementById('modal_hotel_room_id').value = room.id;
-
-    // Calculate price based on BAR and breakfast selection
-    updateRoomPrice();
-
-    document.getElementById('checkInModal').classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-
-    // Initial calculation
-    updateModalSummary();
-}
-
-function updateRoomPrice() {
-    if (!currentRoomData || !currentRoomData.room_type || !currentRoomData.room_type.pricing_rule) {
-        document.getElementById('modal_room_rate_per_night').value = 0;
-        return;
-    }
-
-    const withBreakfast = document.getElementById('modal_with_breakfast').value === '1';
-    const baseRoomTypeName = currentRoomData.room_type.name;
-
-    let pricingRule = currentRoomData.room_type.pricing_rule;
-
-    // If breakfast is selected, find the room type with breakfast
-    if (withBreakfast) {
-        // Look for room type with breakfast (e.g., "Standard + 2 Breakfast")
-        const breakfastRoomType = allRoomTypes.find(rt =>
-            rt.name.includes(baseRoomTypeName) &&
-            rt.name.toLowerCase().includes('breakfast') &&
-            rt.id !== currentRoomData.room_type.id
-        );
-
-        // If found, use its pricing rule
-        if (breakfastRoomType && breakfastRoomType.pricing_rule) {
-            pricingRule = breakfastRoomType.pricing_rule;
-        }
-    }
-
-    // Get price from active BAR
-    let referencePrice = 0;
-    switch(activeBar) {
-        case 'bar_1':
-            referencePrice = parseFloat(pricingRule.bar_1 || 0);
-            break;
-        case 'bar_2':
-            referencePrice = parseFloat(pricingRule.bar_2 || 0);
-            break;
-        case 'bar_3':
-            referencePrice = parseFloat(pricingRule.bar_3 || 0);
-            break;
-        case 'bar_4':
-            referencePrice = parseFloat(pricingRule.bar_4 || 0);
-            break;
-        case 'bar_5':
-            referencePrice = parseFloat(pricingRule.bar_5 || 0);
-            break;
-        default:
-            referencePrice = parseFloat(pricingRule.bar_1 || 0);
-    }
-
-    // Display reference price (read-only display)
-    document.getElementById('modal_bar_reference_price').textContent = 'Rp ' + Math.round(referencePrice).toLocaleString('id-ID');
-
-    // Update editable price field with reference price when breakfast changes
-    // This allows FO to see the reference price update, but they can still edit it
-    document.getElementById('modal_room_rate_per_night').value = Math.round(referencePrice);
-
-    updateModalSummary();
-}
-
-function closeCheckInModal() {
-    document.getElementById('checkInModal').classList.add('hidden');
-    document.body.style.overflow = 'auto';
-
-    // Reset form fields untuk modal berikutnya
-    document.getElementById('modal_room_rate_per_night').value = '';
-    currentRoomData = null;
-}
-
 // Close modal when clicking outside
 document.getElementById('checkInModal').addEventListener('click', function(e) {
     if (e.target === this) {
@@ -623,6 +622,11 @@ document.getElementById('checkInModal').addEventListener('click', function(e) {
 
 // Check-In Form Logic
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing form listeners...');
+
+    const checkInForm = document.querySelector('#checkInModal form');
+    console.log('Check-in form element:', checkInForm);
+
     const rateInput = document.getElementById('modal_room_rate_per_night');
     const checkInInput = document.getElementById('modal_check_in_date');
     const checkOutInput = document.getElementById('modal_check_out_date');
@@ -630,6 +634,85 @@ document.addEventListener('DOMContentLoaded', function() {
     const otaFields = document.getElementById('modal_ota_fields');
     const bookingIdField = document.getElementById('modal_booking_id_field');
     const breakfastSelect = document.getElementById('modal_with_breakfast');
+
+    // Debug form submission
+    if (!checkInForm) {
+        console.error('❌ Check-in form not found!');
+        return;
+    }
+
+    console.log('✅ Check-in form found, attaching submit listener...');
+
+    checkInForm.addEventListener('submit', function(e) {
+        console.log('🚀 Form submit event triggered!');
+        alert('DEBUG: Form submit triggered! Checking fields...');
+
+        // Check if all required fields are filled
+        const requiredFields = checkInForm.querySelectorAll('[required]');
+        let missingFields = [];
+
+        console.log(`Found ${requiredFields.length} required fields`);
+
+        requiredFields.forEach(field => {
+            if (!field.value || field.value.trim() === '') {
+                // Get field label for better readability
+                const label = field.closest('div').querySelector('label')?.textContent || field.name || field.id;
+                missingFields.push({
+                    name: field.name || field.id,
+                    label: label,
+                    element: field
+                });
+            }
+        });
+
+        if (missingFields.length > 0) {
+            e.preventDefault();
+            console.log(`❌ Found ${missingFields.length} missing fields`);
+
+            // Highlight missing fields
+            missingFields.forEach(field => {
+                field.element.classList.add('border-red-500', 'border-2');
+            });
+
+            // Create detailed error message
+            let errorMessage = '⚠️ FORM TIDAK LENGKAP!\n\n';
+            errorMessage += 'Field yang harus diisi:\n\n';
+            missingFields.forEach((field, index) => {
+                errorMessage += `${index + 1}. ${field.label}\n`;
+                errorMessage += `   (Field: ${field.name})\n\n`;
+            });
+
+            console.error('Missing required fields:', missingFields.map(f => f.name));
+            alert(errorMessage);
+
+            // Scroll to first missing field
+            if (missingFields[0] && missingFields[0].element) {
+                missingFields[0].element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                missingFields[0].element.focus();
+            }
+
+            return false;
+        }
+
+        // Remove any previous error highlights
+        checkInForm.querySelectorAll('.border-red-500').forEach(el => {
+            el.classList.remove('border-red-500', 'border-2');
+        });
+
+        console.log('✅ All required fields filled, submitting form...');
+        alert('DEBUG: All fields valid! Form will submit now.');
+        // Form will submit normally after this alert
+    });
+
+        // Remove error highlight when field is filled
+        checkInForm.querySelectorAll('[required]').forEach(field => {
+            field.addEventListener('input', function() {
+                if (this.value && this.value.trim() !== '') {
+                    this.classList.remove('border-red-500', 'border-2');
+                }
+            });
+        });
+    }
 
     // Update price when breakfast selection changes
     breakfastSelect.addEventListener('change', function() {
@@ -681,7 +764,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.updateModalSummary = updateModalSummary;
 
-    // Note: rateInput is now readonly and updated by breakfast selection
+    // Update summary when any field changes
+    rateInput.addEventListener('input', updateModalSummary);
     checkInInput.addEventListener('change', updateModalSummary);
     checkOutInput.addEventListener('change', updateModalSummary);
 
