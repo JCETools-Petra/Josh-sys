@@ -33,14 +33,17 @@
                             </x-nav-link>
 
                         @elseif(Auth::user()->role === 'pengguna_properti')
-                            <x-nav-link :href="route('property.dashboard')" :active="request()->routeIs('property.dashboard')">
-                                {{ __('Dashboard Properti') }}
+                            <x-nav-link :href="route('analytics')" :active="request()->routeIs('analytics')">
+                                {{ __('📊 Analytics') }}
                             </x-nav-link>
-                            <x-nav-link :href="route('property.income.index')" :active="request()->routeIs('property.income.index') || request()->routeIs('property.income.create') || request()->routeIs('property.income.edit')">
-                                {{ __('Riwayat Pendapatan') }}
+                            <x-nav-link :href="route('frontoffice.index')" :active="request()->routeIs('frontoffice.*')">
+                                {{ __('🏨 Front Office') }}
                             </x-nav-link>
-                            <x-nav-link :href="route('property.income.create')" :active="request()->routeIs('property.income.create')">
-                                {{ __('+ Catat Pendapatan') }}
+                            <x-nav-link :href="route('restaurant.index')" :active="request()->routeIs('restaurant.*') && !request()->routeIs('restaurant.pos')">
+                                {{ __('🍽️ Restaurant') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('reports.index')" :active="request()->routeIs('reports.*')">
+                                {{ __('📈 Reports') }}
                             </x-nav-link>
                         @else
                             {{-- Link dashboard umum jika peran tidak spesifik atau untuk skenario lain --}}
@@ -147,14 +150,23 @@
                     </x-responsive-nav-link>
 
                 @elseif(Auth::user()->role === 'pengguna_properti')
-                    <x-responsive-nav-link :href="route('property.dashboard')" :active="request()->routeIs('property.dashboard')">
-                        {{ __('Dashboard Properti') }}
+                    <x-responsive-nav-link :href="route('analytics')" :active="request()->routeIs('analytics')">
+                        {{ __('📊 Analytics Dashboard') }}
                     </x-responsive-nav-link>
-                    <x-responsive-nav-link :href="route('property.income.index')" :active="request()->routeIs('property.income.index') || request()->routeIs('property.income.create') || request()->routeIs('property.income.edit')">
-                        {{ __('Riwayat Pendapatan') }}
+                    <x-responsive-nav-link :href="route('frontoffice.index')" :active="request()->routeIs('frontoffice.*')">
+                        {{ __('🏨 Front Office') }}
                     </x-responsive-nav-link>
-                     <x-responsive-nav-link :href="route('property.income.create')" :active="request()->routeIs('property.income.create')">
-                        {{ __('+ Catat Pendapatan') }}
+                    <x-responsive-nav-link :href="route('restaurant.index')" :active="request()->routeIs('restaurant.*') && !request()->routeIs('restaurant.pos')">
+                        {{ __('🍽️ Restaurant Orders') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('restaurant.pos')" :active="request()->routeIs('restaurant.pos')">
+                        {{ __('💰 POS System') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('kitchen.display')" :active="request()->routeIs('kitchen.*')">
+                        {{ __('🍳 Kitchen Display') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('reports.index')" :active="request()->routeIs('reports.*')">
+                        {{ __('📈 Reports') }}
                     </x-responsive-nav-link>
                 @else
                     <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">

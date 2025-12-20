@@ -123,6 +123,10 @@ Route::middleware(['auth', 'verified'])->prefix('restaurant')->name('restaurant.
     Route::get('/menu', [\App\Http\Controllers\RestaurantController::class, 'menuIndex'])->name('menu.index');
     Route::get('/menu/create', [\App\Http\Controllers\RestaurantController::class, 'menuCreate'])->name('menu.create');
     Route::post('/menu', [\App\Http\Controllers\RestaurantController::class, 'menuStore'])->name('menu.store');
+    Route::get('/menu/{menuItem}/edit', [\App\Http\Controllers\RestaurantController::class, 'menuEdit'])->name('menu.edit');
+    Route::put('/menu/{menuItem}', [\App\Http\Controllers\RestaurantController::class, 'menuUpdate'])->name('menu.update');
+    Route::delete('/menu/{menuItem}', [\App\Http\Controllers\RestaurantController::class, 'menuDestroy'])->name('menu.destroy');
+    Route::post('/menu/{menuItem}/toggle', [\App\Http\Controllers\RestaurantController::class, 'menuToggleAvailability'])->name('menu.toggle');
 });
 
 // Kitchen Display System Routes - Role: pengguna_properti, admin

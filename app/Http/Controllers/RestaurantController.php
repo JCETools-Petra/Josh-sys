@@ -280,4 +280,89 @@ class RestaurantController extends Controller
         return redirect()->route('restaurant.menu.index')
             ->with('success', 'Menu item berhasil ditambahkan');
     }
+
+    /**
+     * Show form to edit menu item.
+     */
+    public function menuEdit(FnbMenuItem $menuItem)
+    {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Ensure menu item belongs to user's property
+        if ($menuItem->property_id !== $property->id) {
+            abort(403);
+        }
+
+        return view('restaurant.menu.edit', compact('property', 'menuItem'));
+    }
+
+    /**
+     * Update menu item.
+     */
+    public function menuUpdate(Request $request, FnbMenuItem $menuItem)
+    {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Ensure menu item belongs to user's property
+        if ($menuItem->property_id !== $property->id) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'category' => 'required|in:breakfast,lunch,dinner,appetizer,main_course,dessert,beverage,snack,alcohol',
+            'price' => 'required|numeric|min:0',
+            'description' => 'nullable|string',
+            'is_available' => 'boolean',
+        ]);
+
+        $menuItem->update($validated);
+
+        return redirect()->route('restaurant.menu.index')
+            ->with('success', 'Menu item berhasil diupdate');
+    }
+
+    /**
+     * Delete menu item.
+     */
+    public function menuDestroy(FnbMenuItem $menuItem)
+    {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Ensure menu item belongs to user's property
+        if ($menuItem->property_id !== $property->id) {
+            abort(403);
+        }
+
+        $menuItem->delete();
+
+        return redirect()->route('restaurant.menu.index')
+            ->with('success', 'Menu item berhasil dihapus');
+    }
+
+    /**
+     * Toggle menu item availability.
+     */
+    public function menuToggleAvailability(FnbMenuItem $menuItem)
+    {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Ensure menu item belongs to user's property
+        if ($menuItem->property_id !== $property->id) {
+            abort(403);
+        }
+
+        $menuItem->update([
+            'is_available' => !$menuItem->is_available
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'is_available' => $menuItem->is_available,
+        ]);
+    }
 }
