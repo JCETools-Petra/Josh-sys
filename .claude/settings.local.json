@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan:*)",
+      "Bash(C:xamppphpphp.exe artisan migrate:status)",
+      "Bash(/c/xampp/php/php.exe artisan migrate:status)",
+      "Bash(/c/xampp/php/php.exe artisan:*)"
+    ]
+  }
+}
