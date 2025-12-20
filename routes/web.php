@@ -83,6 +83,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 // PMS (Property Management System) Routes
 // ============================================================================
 
+// Dashboard Analytics Route - Role: pengguna_properti, admin
+Route::middleware(['auth', 'verified'])->get('/analytics', [\App\Http\Controllers\DashboardController::class, 'index'])->name('analytics');
+
 // Front Office Routes - Role: pengguna_properti, admin
 Route::middleware(['auth', 'verified'])->prefix('frontoffice')->name('frontoffice.')->group(function () {
     Route::get('/', [\App\Http\Controllers\FrontOfficeController::class, 'index'])->name('index');
@@ -94,6 +97,7 @@ Route::middleware(['auth', 'verified'])->prefix('frontoffice')->name('frontoffic
     // Check-in / Check-out (Check-in from room grid)
     Route::post('/check-in', [\App\Http\Controllers\FrontOfficeController::class, 'checkIn'])->name('check-in');
     Route::get('/checkout/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'checkOut'])->name('checkout');
+    Route::post('/checkout/{roomStay}/process', [\App\Http\Controllers\FrontOfficeController::class, 'processCheckout'])->name('checkout.process');
     Route::get('/invoice/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'printInvoice'])->name('invoice');
     Route::get('/mark-clean/{room}', [\App\Http\Controllers\FrontOfficeController::class, 'markRoomClean'])->name('mark-clean');
 
@@ -101,6 +105,7 @@ Route::middleware(['auth', 'verified'])->prefix('frontoffice')->name('frontoffic
     Route::post('/search-rooms', [\App\Http\Controllers\FrontOfficeController::class, 'searchRooms'])->name('search-rooms');
 
     // Guest management
+    Route::get('/search-guest', [\App\Http\Controllers\FrontOfficeController::class, 'searchGuest'])->name('search-guest');
     Route::get('/guest/{guest}', [\App\Http\Controllers\FrontOfficeController::class, 'showGuest'])->name('guest.show');
 });
 
@@ -118,6 +123,21 @@ Route::middleware(['auth', 'verified'])->prefix('restaurant')->name('restaurant.
     Route::get('/menu', [\App\Http\Controllers\RestaurantController::class, 'menuIndex'])->name('menu.index');
     Route::get('/menu/create', [\App\Http\Controllers\RestaurantController::class, 'menuCreate'])->name('menu.create');
     Route::post('/menu', [\App\Http\Controllers\RestaurantController::class, 'menuStore'])->name('menu.store');
+});
+
+// Kitchen Display System Routes - Role: pengguna_properti, admin
+Route::middleware(['auth', 'verified'])->prefix('kitchen')->name('kitchen.')->group(function () {
+    Route::get('/display', [\App\Http\Controllers\KitchenDisplayController::class, 'index'])->name('display');
+    Route::get('/orders', [\App\Http\Controllers\KitchenDisplayController::class, 'getOrders'])->name('orders');
+});
+
+// Reports Routes - Role: pengguna_properti, admin
+Route::middleware(['auth', 'verified'])->prefix('reports')->name('reports.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\ReportController::class, 'index'])->name('index');
+    Route::get('/daily-sales', [\App\Http\Controllers\ReportController::class, 'dailySales'])->name('daily-sales');
+    Route::get('/occupancy', [\App\Http\Controllers\ReportController::class, 'occupancy'])->name('occupancy');
+    Route::get('/night-audit', [\App\Http\Controllers\ReportController::class, 'nightAudit'])->name('night-audit');
+    Route::get('/fnb-sales', [\App\Http\Controllers\ReportController::class, 'fnbSales'])->name('fnb-sales');
 });
 
 // Housekeeping Routes - Role: hk, pengguna_properti, admin

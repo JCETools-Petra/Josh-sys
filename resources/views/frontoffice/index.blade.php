@@ -1,9 +1,25 @@
 <x-app-layout>
 <div class="container mx-auto px-4 py-6">
-    <!-- Header -->
-    <div class="mb-6">
-        <h1 class="text-3xl font-bold text-gray-800">Front Office - {{ $property->name }}</h1>
-        <p class="text-gray-600">Property Management System</p>
+    <!-- Header with Search -->
+    <div class="mb-6 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-800">Front Office - {{ $property->name }}</h1>
+            <p class="text-gray-600">Property Management System</p>
+        </div>
+        <div class="flex space-x-3">
+            <!-- Guest Search -->
+            <div class="relative">
+                <input type="text" id="guest_search" placeholder="Cari tamu (Nama/Phone/Email)..."
+                    class="w-80 border-gray-300 rounded-lg shadow-sm pl-10 pr-4 py-2 focus:ring-blue-500 focus:border-blue-500">
+                <svg class="w-5 h-5 absolute left-3 top-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <!-- Search Results Dropdown -->
+                <div id="search_results" class="hidden absolute top-full mt-2 w-full bg-white border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+                    <!-- Results will be populated here -->
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Statistics Cards -->
@@ -455,6 +471,60 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initial calculation
     updateModalSummary();
+
+    // Guest Search Functionality
+    const searchInput = document.getElementById('guest_search');
+    const searchResults = document.getElementById('search_results');
+    let searchTimeout;
+
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        const query = this.value.trim();
+
+        if (query.length < 2) {
+            searchResults.classList.add('hidden');
+            return;
+        }
+
+        searchTimeout = setTimeout(async () => {
+            try {
+                const response = await fetch(`/frontoffice/search-guest?q=${encodeURIComponent(query)}`);
+                const results = await response.json();
+
+                if (results.length === 0) {
+                    searchResults.innerHTML = '<div class="p-4 text-gray-500 text-center">Tidak ada hasil ditemukan</div>';
+                } else {
+                    searchResults.innerHTML = results.map(guest => `
+                        <div class="p-4 hover:bg-gray-50 cursor-pointer border-b last:border-0" onclick="viewGuestDetail(${guest.id})">
+                            <div class="font-semibold text-gray-800">${guest.full_name}</div>
+                            <div class="text-sm text-gray-600">${guest.phone} • ${guest.email || '-'}</div>
+                            ${guest.current_stay ? `
+                                <div class="text-xs text-blue-600 mt-1">
+                                    🏨 Currently staying in Room ${guest.current_stay.room_number}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('');
+                }
+
+                searchResults.classList.remove('hidden');
+            } catch (error) {
+                console.error('Search error:', error);
+            }
+        }, 300);
+    });
+
+    // Close search results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.classList.add('hidden');
+        }
+    });
 });
+
+function viewGuestDetail(guestId) {
+    // For now, just show alert. Later can open modal with full guest history
+    window.location.href = `/frontoffice/guest/${guestId}`;
+}
 </script>
 </x-app-layout>

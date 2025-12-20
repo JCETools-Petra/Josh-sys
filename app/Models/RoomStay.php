@@ -133,7 +133,7 @@ class RoomStay extends Model
      */
     public function payments()
     {
-        return $this->morphMany(PaymentTransaction::class, 'payable');
+        return $this->morphMany(Payment::class, 'payable');
     }
 
     /**

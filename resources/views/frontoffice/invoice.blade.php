@@ -314,6 +314,30 @@
         </div>
         @endif
 
+        @if($roomStay->payments->count() > 0)
+        <div style="margin-top: 20px; padding: 15px; background-color: #f0f9ff; border-left: 3px solid #3b82f6;">
+            <strong>Payment Details:</strong><br>
+            @foreach($roomStay->payments as $payment)
+            <div style="margin-top: 8px;">
+                <strong>{{ ucfirst(str_replace('_', ' ', $payment->payment_method)) }}:</strong>
+                Rp {{ number_format($payment->amount, 0, ',', '.') }}
+                @if($payment->card_number_last4)
+                    (****{{ $payment->card_number_last4 }})
+                @endif
+                @if($payment->reference_number)
+                    (Ref: {{ $payment->reference_number }})
+                @endif
+                @if($payment->notes)
+                    <br><small style="color: #666;">{{ $payment->notes }}</small>
+                @endif
+            </div>
+            @endforeach
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                <strong>Total Paid: Rp {{ number_format($roomStay->payments->sum('amount'), 0, ',', '.') }}</strong>
+            </div>
+        </div>
+        @endif
+
         <div class="footer">
             <p><strong>Terima kasih atas kunjungan Anda!</strong></p>
             <p>Invoice ini digenerate otomatis oleh sistem pada {{ now()->format('d M Y, H:i') }}</p>

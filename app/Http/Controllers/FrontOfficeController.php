@@ -241,18 +241,87 @@ class FrontOfficeController extends Controller
     }
 
     /**
-     * Process check-out.
+     * Show check-out payment page.
      */
     public function checkOut(RoomStay $roomStay)
     {
+        $roomStay->load(['guest', 'hotelRoom.roomType', 'fnbOrders.items.menuItem', 'payments']);
+
+        return view('frontoffice.checkout-payment', compact('roomStay'));
+    }
+
+    /**
+     * Process check-out with payment.
+     */
+    public function processCheckout(Request $request, RoomStay $roomStay)
+    {
+        $validated = $request->validate([
+            'payments' => 'required|array|min:1',
+            'payments.*.payment_method' => 'required|in:cash,credit_card,debit_card,bank_transfer,other',
+            'payments.*.amount' => 'required|numeric|min:0',
+            'payments.*.card_number_last4' => 'nullable|string|max:4',
+            'payments.*.card_holder_name' => 'nullable|string|max:255',
+            'payments.*.card_type' => 'nullable|string|max:50',
+            'payments.*.bank_name' => 'nullable|string|max:255',
+            'payments.*.reference_number' => 'nullable|string|max:255',
+            'payments.*.notes' => 'nullable|string',
+        ]);
+
         try {
+            $user = auth()->user();
+            $property = $user->property;
+
+            // Calculate total bill
+            $totalBill = $roomStay->total_room_charge
+                       + $roomStay->fnbOrders->sum('total_amount')
+                       + $roomStay->tax_amount
+                       + $roomStay->service_charge;
+
+            // Calculate total payment amount
+            $totalPaid = collect($validated['payments'])->sum('amount');
+
+            // Validate total paid matches total bill
+            if (abs($totalPaid - $totalBill) > 0.01) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', 'Total pembayaran tidak sesuai dengan tagihan. Tagihan: Rp ' . number_format($totalBill, 0, ',', '.') . ', Dibayar: Rp ' . number_format($totalPaid, 0, ',', '.'));
+            }
+
+            // Create payment records
+            foreach ($validated['payments'] as $paymentData) {
+                \App\Models\Payment::create([
+                    'property_id' => $property->id,
+                    'payable_id' => $roomStay->id,
+                    'payable_type' => \App\Models\RoomStay::class,
+                    'payment_method' => $paymentData['payment_method'],
+                    'amount' => $paymentData['amount'],
+                    'card_number_last4' => $paymentData['card_number_last4'] ?? null,
+                    'card_holder_name' => $paymentData['card_holder_name'] ?? null,
+                    'card_type' => $paymentData['card_type'] ?? null,
+                    'bank_name' => $paymentData['bank_name'] ?? null,
+                    'reference_number' => $paymentData['reference_number'] ?? null,
+                    'notes' => $paymentData['notes'] ?? null,
+                    'status' => 'completed',
+                    'payment_date' => now(),
+                    'processed_by' => $user->id,
+                ]);
+            }
+
+            // Update room stay payment status
+            $roomStay->update([
+                'payment_status' => 'paid',
+                'paid_amount' => $totalPaid,
+            ]);
+
+            // Process checkout
             $this->frontOfficeService->checkOut($roomStay);
 
-            return redirect()->route('frontoffice.room-grid')
+            return redirect()->route('frontoffice.invoice', $roomStay)
                 ->with('success', "Check-out berhasil untuk kamar {$roomStay->hotelRoom->room_number}");
 
         } catch (\Exception $e) {
             return redirect()->back()
+                ->withInput()
                 ->with('error', 'Gagal melakukan check-out: ' . $e->getMessage());
         }
     }
@@ -292,6 +361,45 @@ class FrontOfficeController extends Controller
             return redirect()->back()
                 ->with('error', 'Gagal menandai kamar sebagai bersih: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Search guest by name, phone, or email.
+     */
+    public function searchGuest(Request $request)
+    {
+        $query = $request->get('q');
+        $user = auth()->user();
+        $property = $user->property;
+
+        $guests = Guest::where(function($q) use ($query) {
+                $q->where('first_name', 'LIKE', "%{$query}%")
+                  ->orWhere('last_name', 'LIKE', "%{$query}%")
+                  ->orWhere('phone', 'LIKE', "%{$query}%")
+                  ->orWhere('email', 'LIKE', "%{$query}%");
+            })
+            ->with(['roomStays' => function($q) use ($property) {
+                $q->where('property_id', $property->id)
+                  ->where('status', 'checked_in')
+                  ->with('hotelRoom');
+            }])
+            ->limit(10)
+            ->get()
+            ->map(function($guest) {
+                $currentStay = $guest->roomStays->first();
+                return [
+                    'id' => $guest->id,
+                    'full_name' => $guest->full_name,
+                    'phone' => $guest->phone,
+                    'email' => $guest->email,
+                    'current_stay' => $currentStay ? [
+                        'room_number' => $currentStay->hotelRoom->room_number,
+                        'check_in_date' => $currentStay->check_in_date->format('d M Y'),
+                    ] : null,
+                ];
+            });
+
+        return response()->json($guests);
     }
 
     /**
