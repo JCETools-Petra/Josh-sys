@@ -146,20 +146,22 @@ class RoomStay extends Model
 
     /**
      * Scope for today's check-ins.
+     * Menampilkan tamu yang melakukan check-in hari ini (berdasarkan actual_check_in).
      */
     public function scopeCheckingInToday($query)
     {
-        return $query->where('status', 'reserved')
-            ->whereDate('check_in_date', today());
+        return $query->whereNotNull('actual_check_in')
+            ->whereDate('actual_check_in', today());
     }
 
     /**
      * Scope for today's check-outs.
+     * Menampilkan tamu yang melakukan check-out hari ini (berdasarkan actual_check_out).
      */
     public function scopeCheckingOutToday($query)
     {
-        return $query->where('status', 'checked_in')
-            ->whereDate('check_out_date', today());
+        return $query->whereNotNull('actual_check_out')
+            ->whereDate('actual_check_out', today());
     }
 
     /**

@@ -248,12 +248,49 @@ class FrontOfficeController extends Controller
         try {
             $this->frontOfficeService->checkOut($roomStay);
 
-            return redirect()->route('frontoffice.index')
+            return redirect()->route('frontoffice.room-grid')
                 ->with('success', "Check-out berhasil untuk kamar {$roomStay->hotelRoom->room_number}");
 
         } catch (\Exception $e) {
             return redirect()->back()
                 ->with('error', 'Gagal melakukan check-out: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Print invoice for a room stay.
+     */
+    public function printInvoice(RoomStay $roomStay)
+    {
+        $roomStay->load(['guest', 'hotelRoom.roomType', 'property', 'fnbOrders.items']);
+
+        return view('frontoffice.invoice', compact('roomStay'));
+    }
+
+    /**
+     * Mark room as clean (FO confirmation after housekeeping).
+     */
+    public function markRoomClean(HotelRoom $room)
+    {
+        try {
+            // Change room status from vacant_dirty to vacant_clean
+            if ($room->status !== 'vacant_dirty') {
+                return redirect()->back()
+                    ->with('error', 'Kamar ' . $room->room_number . ' tidak dalam status kotor.');
+            }
+
+            $room->update([
+                'status' => 'vacant_clean',
+                'last_cleaned_at' => now(),
+                'last_cleaned_by' => auth()->id(),
+            ]);
+
+            return redirect()->route('frontoffice.room-grid')
+                ->with('success', "Kamar {$room->room_number} telah ditandai sebagai sudah dibersihkan.");
+
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'Gagal menandai kamar sebagai bersih: ' . $e->getMessage());
         }
     }
 

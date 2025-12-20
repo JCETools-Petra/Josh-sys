@@ -72,6 +72,7 @@
         <div class="bg-white rounded-lg shadow">
             <div class="bg-blue-600 text-white px-6 py-3 rounded-t-lg">
                 <h2 class="text-lg font-bold">Check-in Hari Ini ({{ $checkingInToday->count() }})</h2>
+                <p class="text-xs text-blue-100 mt-1">Tamu yang melakukan check-in hari ini ({{ now()->format('d M Y') }})</p>
             </div>
             <div class="p-4">
                 @forelse($checkingInToday as $stay)
@@ -92,25 +93,16 @@
         <div class="bg-white rounded-lg shadow">
             <div class="bg-green-600 text-white px-6 py-3 rounded-t-lg">
                 <h2 class="text-lg font-bold">Check-out Hari Ini ({{ $checkingOutToday->count() }})</h2>
+                <p class="text-xs text-green-100 mt-1">Tamu yang sudah check-out hari ini ({{ now()->format('d M Y') }})</p>
             </div>
             <div class="p-4">
                 @forelse($checkingOutToday as $stay)
-                <div class="border-b py-3 last:border-0 flex justify-between items-center">
-                    <div>
-                        <div class="font-semibold">{{ $stay->guest->full_name }}</div>
-                        <div class="text-sm text-gray-600">
-                            Kamar {{ $stay->hotelRoom->room_number }} •
-                            {{ $stay->check_out_date->format('H:i') }}
-                        </div>
+                <div class="border-b py-3 last:border-0">
+                    <div class="font-semibold">{{ $stay->guest->full_name }}</div>
+                    <div class="text-sm text-gray-600">
+                        Kamar {{ $stay->hotelRoom->room_number }} •
+                        {{ $stay->actual_check_out ? \Carbon\Carbon::parse($stay->actual_check_out)->format('H:i') : $stay->check_out_date->format('H:i') }}
                     </div>
-                    <form action="{{ route('frontoffice.check-out', $stay) }}" method="POST">
-                        @csrf
-                        <button type="submit"
-                                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm"
-                                onclick="return confirm('Yakin check-out tamu ini?')">
-                            Check-Out
-                        </button>
-                    </form>
                 </div>
                 @empty
                 <p class="text-gray-500 text-center py-4">Tidak ada check-out hari ini</p>
@@ -123,6 +115,7 @@
     <div class="bg-white rounded-lg shadow">
         <div class="bg-gray-800 text-white px-6 py-3 rounded-t-lg">
             <h2 class="text-lg font-bold">Tamu Saat Ini ({{ $currentGuests->count() }})</h2>
+            <p class="text-xs text-gray-300 mt-1">Semua tamu yang sedang menginap (termasuk yang check-in kemarin/sebelumnya)</p>
         </div>
         <div class="p-4">
             <div class="overflow-x-auto">

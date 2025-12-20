@@ -20,6 +20,7 @@ class HotelRoom extends Model
         'notes',
         'status',
         'last_cleaned_at',
+        'last_cleaned_by',
         'assigned_hk_user_id',
         'floor',
         'is_smoking',

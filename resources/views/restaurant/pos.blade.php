@@ -51,7 +51,11 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">Pilih Kamar *</label>
                     <select id="room_select" class="w-full border-gray-300 rounded-lg shadow-sm">
                         <option value="">-- Pilih Kamar --</option>
-                        <!-- Will be populated dynamically -->
+                        @foreach($occupiedRooms as $room)
+                            <option value="{{ $room->id }}">
+                                Room {{ $room->room_number }} - {{ $room->currentStay->guest->full_name ?? 'Guest' }}
+                            </option>
+                        @endforeach
                     </select>
                 </div>
 
@@ -167,15 +171,8 @@ let selectedRoom = null;
 let cart = [];
 let currentCategory = 'all';
 
-// Sample menu items (in production, this would come from backend)
-const sampleMenuItems = [
-    { id: 1, name: 'Nasi Goreng', category: 'lunch', price: 35000, available: true },
-    { id: 2, name: 'Mie Goreng', category: 'lunch', price: 30000, available: true },
-    { id: 3, name: 'Kopi Hitam', category: 'beverage', price: 15000, available: true },
-    { id: 4, name: 'Teh Manis', category: 'beverage', price: 10000, available: true },
-    { id: 5, name: 'American Breakfast', category: 'breakfast', price: 55000, available: true },
-    { id: 6, name: 'Nasi Putih', category: 'dinner', price: 8000, available: true },
-];
+// Menu items from backend
+const menuItems = @json($menuItems->flatten());
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
@@ -224,8 +221,8 @@ function filterCategory(category) {
 function renderMenuItems() {
     const grid = document.getElementById('menu_items_grid');
     const items = currentCategory === 'all'
-        ? sampleMenuItems
-        : sampleMenuItems.filter(item => item.category === currentCategory);
+        ? menuItems
+        : menuItems.filter(item => item.category === currentCategory);
 
     if (items.length === 0) {
         grid.innerHTML = `
@@ -240,14 +237,14 @@ function renderMenuItems() {
         <div onclick="addToCart(${item.id})" class="bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-lg p-3 cursor-pointer transition">
             <div class="font-semibold text-gray-800 text-sm mb-1">${item.name}</div>
             <div class="text-blue-600 font-bold text-sm">Rp ${formatNumber(item.price)}</div>
-            <div class="text-xs text-gray-500 mt-1">${item.available ? '✓ Tersedia' : '✗ Habis'}</div>
+            <div class="text-xs text-gray-500 mt-1">${item.is_available ? '✓ Tersedia' : '✗ Habis'}</div>
         </div>
     `).join('');
 }
 
 function addToCart(itemId) {
-    const menuItem = sampleMenuItems.find(item => item.id === itemId);
-    if (!menuItem || !menuItem.available) {
+    const menuItem = menuItems.find(item => item.id === itemId);
+    if (!menuItem || !menuItem.is_available) {
         alert('Item tidak tersedia');
         return;
     }
@@ -259,7 +256,7 @@ function addToCart(itemId) {
         cart.push({
             id: menuItem.id,
             name: menuItem.name,
-            price: menuItem.price,
+            price: parseFloat(menuItem.price),
             quantity: 1
         });
     }
@@ -347,26 +344,74 @@ function updateSummary() {
     document.getElementById('total_display').textContent = 'Rp ' + formatNumber(total);
 }
 
-function createOrder() {
+async function createOrder() {
     if (cart.length === 0) {
         alert('Keranjang masih kosong');
         return;
     }
 
-    if (orderType === 'room_service') {
-        const roomSelect = document.getElementById('room_select');
-        if (!roomSelect.value) {
-            alert('Silakan pilih kamar terlebih dahulu');
-            return;
-        }
+    const btn = document.getElementById('create_order_btn');
+    const originalText = btn.textContent;
+
+    // Prepare order data
+    const orderData = {
+        order_type: orderType,
+        table_number: orderType === 'dine_in' ? document.getElementById('table_number').value : null,
+        hotel_room_id: orderType === 'room_service' ? document.getElementById('room_select').value : null,
+        special_instructions: document.getElementById('special_instructions').value,
+        items: cart.map(item => ({
+            menu_item_id: item.id,
+            quantity: item.quantity
+        }))
+    };
+
+    // Validate room selection for room service
+    if (orderType === 'room_service' && !orderData.hotel_room_id) {
+        alert('Silakan pilih kamar terlebih dahulu');
+        return;
     }
 
-    // In production, this would send data to backend
-    alert('Fitur create order akan segera tersedia!\n\nOrder Type: ' + orderType + '\nTotal Items: ' + cart.length + '\nTotal Amount: Rp ' + formatNumber(cart.reduce((sum, item) => sum + (item.price * item.quantity * 1.15), 0)));
+    try {
+        btn.disabled = true;
+        btn.textContent = 'Memproses...';
 
-    // Clear cart after successful order
-    // cart = [];
-    // updateCart();
+        const response = await fetch('{{ route("restaurant.orders.create") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(orderData)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert('✓ Order berhasil dibuat!\n\nOrder Number: ' + result.order.order_number + '\nTotal: Rp ' + formatNumber(result.order.total_amount));
+
+            // Clear cart and reset form
+            cart = [];
+            updateCart();
+            document.getElementById('special_instructions').value = '';
+            if (orderType === 'dine_in') {
+                document.getElementById('table_number').value = '';
+            }
+
+            // Redirect to order management after 1 second
+            setTimeout(() => {
+                window.location.href = '{{ route("restaurant.index") }}';
+            }, 1000);
+        } else {
+            alert('❌ Gagal membuat order:\n' + result.message);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Terjadi kesalahan saat membuat order');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
 }
 
 function formatNumber(num) {

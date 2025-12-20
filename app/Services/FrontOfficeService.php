@@ -166,18 +166,21 @@ class FrontOfficeService
      */
     protected function updateDailyOccupancy(int $propertyId, string $date): void
     {
+        // Extract date only (remove time component)
+        $dateOnly = \Carbon\Carbon::parse($date)->format('Y-m-d');
+
         // Count occupied rooms for the property on this date
         $occupiedCount = RoomStay::where('property_id', $propertyId)
             ->where('status', 'checked_in')
-            ->whereDate('check_in_date', '<=', $date)
-            ->whereDate('check_out_date', '>', $date)
+            ->whereDate('check_in_date', '<=', $dateOnly)
+            ->whereDate('check_out_date', '>', $dateOnly)
             ->count();
 
         // Update or create daily occupancy
         DailyOccupancy::updateOrCreate(
             [
                 'property_id' => $propertyId,
-                'date' => $date,
+                'date' => $dateOnly,
             ],
             [
                 'occupied_rooms' => $occupiedCount,

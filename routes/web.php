@@ -93,7 +93,9 @@ Route::middleware(['auth', 'verified'])->prefix('frontoffice')->name('frontoffic
 
     // Check-in / Check-out (Check-in from room grid)
     Route::post('/check-in', [\App\Http\Controllers\FrontOfficeController::class, 'checkIn'])->name('check-in');
-    Route::post('/check-out/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'checkOut'])->name('check-out');
+    Route::get('/checkout/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'checkOut'])->name('checkout');
+    Route::get('/invoice/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'printInvoice'])->name('invoice');
+    Route::get('/mark-clean/{room}', [\App\Http\Controllers\FrontOfficeController::class, 'markRoomClean'])->name('mark-clean');
 
     // Room search
     Route::post('/search-rooms', [\App\Http\Controllers\FrontOfficeController::class, 'searchRooms'])->name('search-rooms');

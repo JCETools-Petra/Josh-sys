@@ -4,7 +4,13 @@
       "Bash(php artisan:*)",
       "Bash(C:xamppphpphp.exe artisan migrate:status)",
       "Bash(/c/xampp/php/php.exe artisan migrate:status)",
-      "Bash(/c/xampp/php/php.exe artisan:*)"
+      "Bash(/c/xampp/php/php.exe artisan:*)",
+      "Bash(C:/xampp/php/php.exe artisan view:clear)",
+      "Bash(C:/xampp/php/php.exe artisan migrate:status)",
+      "Bash(find:*)",
+      "Bash(C:/xampp/php/php.exe artisan tinker --execute=\"echo DB::select(''SHOW CREATE TABLE daily_occupancies'')[0]->{''Create Table''};\")",
+      "Bash(C:/xampp/php/php.exe artisan tinker --execute=\"echo DB::select(''SHOW CREATE TABLE hotel_rooms'')[0]->{''Create Table''};\")",
+      "Bash(C:/xampp/php/php.exe:*)"
     ]
   }
 }
