@@ -208,9 +208,9 @@
                 <button onclick="closeModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-lg transition">
                     Tutup
                 </button>
-                <a id="checkin_btn" href="#" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition hidden">
+                <button type="button" id="checkin_btn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition hidden">
                     Check-In
-                </a>
+                </button>
             </div>
         </div>
     </div>
