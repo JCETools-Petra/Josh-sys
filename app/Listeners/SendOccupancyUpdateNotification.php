@@ -16,14 +16,20 @@ class SendOccupancyUpdateNotification
      */
     public function handle(OccupancyUpdated $event): void
     {
-        // 1. Ambil semua user dengan peran 'online_ecommerce'
-        $ecommerceUsers = User::where('role', 'online_ecommerce')->get();
+        try {
+            // 1. Ambil semua user dengan peran 'online_ecommerce'
+            $ecommerceUsers = User::where('role', 'online_ecommerce')->get();
 
-        // 2. Kirim email ke setiap user
-        foreach ($ecommerceUsers as $user) {
-            Mail::to($user->email)->send(
-                new OccupancyUpdateNotification($event->property, $event->occupancy)
-            );
+            // 2. Kirim email ke setiap user
+            foreach ($ecommerceUsers as $user) {
+                Mail::to($user->email)->send(
+                    new OccupancyUpdateNotification($event->property, $event->occupancy)
+                );
+            }
+        } catch (\Exception $e) {
+            // Log error tapi jangan stop proses
+            \Log::warning('Failed to send occupancy notification email: ' . $e->getMessage());
+            // Notifikasi email gagal, tapi occupancy sudah ter-update
         }
     }
 }

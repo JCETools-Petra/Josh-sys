@@ -91,12 +91,20 @@ class FrontOfficeController extends Controller
         }
 
         $rooms = $property->hotelRooms()
-            ->with(['roomType', 'currentStay.guest', 'assignedHousekeeper'])
+            ->with(['roomType.pricingRule', 'currentStay.guest', 'assignedHousekeeper'])
             ->orderBy('floor')
             ->orderBy('room_number')
             ->get();
 
-        return view('frontoffice.room-grid', compact('property', 'rooms'));
+        // Get active BAR level
+        $barActive = $property->bar_active ?? 'bar_1';
+
+        // Get all room types with pricing rules for breakfast option lookup
+        $roomTypes = $property->roomTypes()
+            ->with('pricingRule')
+            ->get();
+
+        return view('frontoffice.room-grid', compact('property', 'rooms', 'barActive', 'roomTypes'));
     }
 
 
@@ -179,6 +187,7 @@ class FrontOfficeController extends Controller
             'check_in_date' => 'required|date',
             'check_out_date' => 'required|date|after:check_in_date',
             'room_rate_per_night' => 'required|numeric|min:0',
+            'with_breakfast' => 'required|boolean',
             'adults' => 'required|integer|min:1',
             'children' => 'nullable|integer|min:0',
             'source' => 'required|in:walk_in,ota,ta,corporate,government,compliment,house_use,affiliate,online',
