@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Property;
 use App\Models\FnbMenuItem;
 use App\Models\FnbOrder;
@@ -144,6 +145,29 @@ class RestaurantController extends Controller
             // Recalculate order totals
             $order->recalculateTotals();
 
+            // Log activity
+            $orderTypeLabel = match($order->order_type) {
+                'dine_in' => 'Dine In',
+                'room_service' => 'Room Service',
+                'takeaway' => 'Take Away',
+                'delivery' => 'Delivery',
+                default => $order->order_type
+            };
+            $locationInfo = $order->order_type === 'room_service' && $order->hotelRoom
+                ? " ke kamar {$order->hotelRoom->room_number}"
+                : ($order->table_number ? " di meja {$order->table_number}" : '');
+
+            ActivityLog::create([
+                'user_id' => auth()->id(),
+                'property_id' => $property->id,
+                'action' => 'create',
+                'description' => auth()->user()->name . " membuat order {$orderTypeLabel}{$locationInfo}, nomor order: {$order->order_number}, total: Rp " . number_format($order->total_amount, 0, ',', '.') . ", jumlah item: " . $order->items->count(),
+                'loggable_id' => $order->id,
+                'loggable_type' => FnbOrder::class,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
             DB::commit();
 
             return response()->json([
@@ -170,6 +194,7 @@ class RestaurantController extends Controller
             'status' => 'required|in:pending,confirmed,preparing,ready,delivered,completed,cancelled',
         ]);
 
+        $oldStatus = $order->status;
         $order->update([
             'status' => $validated['status'],
             'status_changed_at' => now(),
@@ -179,6 +204,29 @@ class RestaurantController extends Controller
         if ($validated['status'] === 'completed') {
             $order->update(['payment_status' => 'paid']);
         }
+
+        // Log activity
+        $statusLabel = match($validated['status']) {
+            'pending' => 'pending',
+            'confirmed' => 'dikonfirmasi',
+            'preparing' => 'sedang diproses',
+            'ready' => 'siap disajikan',
+            'delivered' => 'diantar',
+            'completed' => 'selesai',
+            'cancelled' => 'dibatalkan',
+            default => $validated['status']
+        };
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => $order->property_id,
+            'action' => 'update',
+            'description' => auth()->user()->name . " mengubah status order {$order->order_number} dari {$oldStatus} menjadi {$statusLabel}",
+            'loggable_id' => $order->id,
+            'loggable_type' => FnbOrder::class,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
+        ]);
 
         return response()->json([
             'success' => true,
@@ -213,6 +261,27 @@ class RestaurantController extends Controller
                 // Room charges will be settled at checkout
                 $order->update(['payment_status' => 'charge_to_room']);
             }
+
+            // Log activity
+            $paymentMethodLabel = match($validated['payment_method']) {
+                'cash' => 'tunai',
+                'card' => 'kartu',
+                'ewallet' => 'e-wallet',
+                'transfer' => 'transfer bank',
+                'room_charge' => 'charge ke kamar',
+                default => $validated['payment_method']
+            };
+
+            ActivityLog::create([
+                'user_id' => auth()->id(),
+                'property_id' => $order->property_id,
+                'action' => 'update',
+                'description' => auth()->user()->name . " memproses pembayaran order {$order->order_number}, metode: {$paymentMethodLabel}, jumlah: Rp " . number_format($validated['paid_amount'], 0, ',', '.'),
+                'loggable_id' => $order->id,
+                'loggable_type' => FnbOrder::class,
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+            ]);
 
             DB::commit();
 
@@ -273,9 +342,21 @@ class RestaurantController extends Controller
             'is_available' => 'boolean',
         ]);
 
-        FnbMenuItem::create(array_merge($validated, [
+        $menuItem = FnbMenuItem::create(array_merge($validated, [
             'property_id' => $property->id,
         ]));
+
+        // Log activity
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => $property->id,
+            'action' => 'create',
+            'description' => auth()->user()->name . " menambahkan menu item '{$menuItem->name}', kategori: {$menuItem->category}, harga: Rp " . number_format($menuItem->price, 0, ',', '.'),
+            'loggable_id' => $menuItem->id,
+            'loggable_type' => FnbMenuItem::class,
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
 
         return redirect()->route('restaurant.menu.index')
             ->with('success', 'Menu item berhasil ditambahkan');
@@ -318,7 +399,20 @@ class RestaurantController extends Controller
             'is_available' => 'boolean',
         ]);
 
+        $oldName = $menuItem->name;
         $menuItem->update($validated);
+
+        // Log activity
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => $property->id,
+            'action' => 'update',
+            'description' => auth()->user()->name . " mengupdate menu item '{$oldName}' menjadi '{$menuItem->name}', kategori: {$menuItem->category}, harga: Rp " . number_format($menuItem->price, 0, ',', '.'),
+            'loggable_id' => $menuItem->id,
+            'loggable_type' => FnbMenuItem::class,
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
 
         return redirect()->route('restaurant.menu.index')
             ->with('success', 'Menu item berhasil diupdate');
@@ -337,7 +431,20 @@ class RestaurantController extends Controller
             abort(403);
         }
 
+        $menuName = $menuItem->name;
         $menuItem->delete();
+
+        // Log activity
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => $property->id,
+            'action' => 'delete',
+            'description' => auth()->user()->name . " menghapus menu item '{$menuName}'",
+            'loggable_id' => $menuItem->id,
+            'loggable_type' => FnbMenuItem::class,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
+        ]);
 
         return redirect()->route('restaurant.menu.index')
             ->with('success', 'Menu item berhasil dihapus');
@@ -356,8 +463,22 @@ class RestaurantController extends Controller
             abort(403);
         }
 
+        $oldAvailability = $menuItem->is_available;
         $menuItem->update([
             'is_available' => !$menuItem->is_available
+        ]);
+
+        // Log activity
+        $statusLabel = $menuItem->is_available ? 'tersedia' : 'tidak tersedia';
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => $property->id,
+            'action' => 'update',
+            'description' => auth()->user()->name . " mengubah ketersediaan menu '{$menuItem->name}' menjadi {$statusLabel}",
+            'loggable_id' => $menuItem->id,
+            'loggable_type' => FnbMenuItem::class,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
         ]);
 
         return response()->json([

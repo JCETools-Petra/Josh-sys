@@ -46,9 +46,26 @@ trait LogsActivity
     {
         $modelName = class_basename($model);
         $userName = Auth::user()?->name ?? 'Sistem';
-        $identifier = $model->name ?? $model->booking_number ?? $model->client_name ?? "#{$model->id}";
 
-        return "{$userName} {$action} {$modelName} '{$identifier}'.";
+        // Try different identifier fields based on model
+        $identifier = $model->name
+            ?? $model->booking_number
+            ?? $model->client_name
+            ?? $model->confirmation_number
+            ?? $model->order_number
+            ?? $model->payment_number
+            ?? $model->full_name
+            ?? "#{$model->id}";
+
+        // Translate action to Bahasa Indonesia
+        $actionIndo = match($action) {
+            'created' => 'membuat',
+            'updated' => 'mengubah',
+            'deleted' => 'menghapus',
+            default => $action,
+        };
+
+        return "{$userName} {$actionIndo} {$modelName} '{$identifier}'.";
     }
 
     // ================== PERUBAHAN NAMA METODE DI SINI ==================

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Property;
 use App\Models\HotelRoom;
 use App\Models\RoomStay;
@@ -164,6 +165,18 @@ class FrontOfficeController extends Controller
 
             $roomStay = $this->frontOfficeService->createReservation($data);
 
+            // Log activity
+            ActivityLog::create([
+                'user_id' => auth()->id(),
+                'property_id' => $property->id,
+                'action' => 'create',
+                'description' => auth()->user()->name . " membuat reservasi untuk tamu {$roomStay->guest->full_name}, kamar {$roomStay->hotelRoom->room_number}, check-in: " . $roomStay->check_in_date->format('d/m/Y') . ", check-out: " . $roomStay->check_out_date->format('d/m/Y') . ", konfirmasi: {$roomStay->confirmation_number}",
+                'loggable_id' => $roomStay->id,
+                'loggable_type' => RoomStay::class,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
             return redirect()->route('frontoffice.index')
                 ->with('success', "Reservasi berhasil dibuat! Confirmation Number: {$roomStay->confirmation_number}");
 
@@ -229,6 +242,18 @@ class FrontOfficeController extends Controller
             ]);
 
             $roomStay = $this->frontOfficeService->checkIn($data);
+
+            // Log activity
+            ActivityLog::create([
+                'user_id' => auth()->id(),
+                'property_id' => $property->id,
+                'action' => 'create',
+                'description' => auth()->user()->name . " melakukan check-in tamu {$roomStay->guest->full_name}, kamar {$roomStay->hotelRoom->room_number}, dari: " . $roomStay->actual_check_in->format('d/m/Y H:i') . ", sampai: " . $roomStay->check_out_date->format('d/m/Y') . ", konfirmasi: {$roomStay->confirmation_number}",
+                'loggable_id' => $roomStay->id,
+                'loggable_type' => RoomStay::class,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
 
             return redirect()->route('frontoffice.index')
                 ->with('success', "Check-in berhasil! Confirmation Number: {$roomStay->confirmation_number}");
@@ -316,6 +341,18 @@ class FrontOfficeController extends Controller
             // Process checkout
             $this->frontOfficeService->checkOut($roomStay);
 
+            // Log activity
+            ActivityLog::create([
+                'user_id' => auth()->id(),
+                'property_id' => $property->id,
+                'action' => 'update',
+                'description' => auth()->user()->name . " melakukan check-out tamu {$roomStay->guest->full_name}, kamar {$roomStay->hotelRoom->room_number}, total tagihan: Rp " . number_format($totalBill, 0, ',', '.') . ", pembayaran: " . collect($validated['payments'])->pluck('payment_method')->implode(', ') . ", konfirmasi: {$roomStay->confirmation_number}",
+                'loggable_id' => $roomStay->id,
+                'loggable_type' => RoomStay::class,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
             return redirect()->route('frontoffice.invoice', $roomStay)
                 ->with('success', "Check-out berhasil untuk kamar {$roomStay->hotelRoom->room_number}");
 
@@ -366,6 +403,18 @@ class FrontOfficeController extends Controller
                 'status' => 'vacant_clean',
                 'last_cleaned_at' => now(),
                 'last_cleaned_by' => auth()->id(),
+            ]);
+
+            // Log activity
+            ActivityLog::create([
+                'user_id' => auth()->id(),
+                'property_id' => $room->property_id,
+                'action' => 'update',
+                'description' => auth()->user()->name . " menandai kamar {$room->room_number} sebagai bersih (vacant_clean)",
+                'loggable_id' => $room->id,
+                'loggable_type' => HotelRoom::class,
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
             ]);
 
             return redirect()->route('frontoffice.room-grid')

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Property;
 use App\Models\HotelRoom;
 use App\Models\User;
@@ -60,9 +61,32 @@ class HousekeepingController extends Controller
             'status' => 'required|in:vacant_clean,vacant_dirty,occupied,maintenance,out_of_order,blocked',
         ]);
 
+        $oldStatus = $room->status;
         $room->update([
             'status' => $validated['status'],
             'last_cleaned_at' => $validated['status'] === 'vacant_clean' ? now() : $room->last_cleaned_at,
+        ]);
+
+        // Log activity
+        $statusLabel = match($validated['status']) {
+            'vacant_clean' => 'kosong bersih',
+            'vacant_dirty' => 'kosong kotor',
+            'occupied' => 'terisi',
+            'maintenance' => 'maintenance',
+            'out_of_order' => 'out of order',
+            'blocked' => 'diblokir',
+            default => $validated['status']
+        };
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => $room->property_id,
+            'action' => 'update',
+            'description' => auth()->user()->name . " mengubah status kamar {$room->room_number} dari {$oldStatus} menjadi {$statusLabel}",
+            'loggable_id' => $room->id,
+            'loggable_type' => HotelRoom::class,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
         ]);
 
         return response()->json([
@@ -84,6 +108,19 @@ class HousekeepingController extends Controller
             'assigned_hk_user_id' => $validated['assigned_hk_user_id'],
         ]);
 
+        // Log activity
+        $housekeeper = User::find($validated['assigned_hk_user_id']);
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => $room->property_id,
+            'action' => 'update',
+            'description' => auth()->user()->name . " meng-assign housekeeping staff '{$housekeeper->name}' ke kamar {$room->room_number}",
+            'loggable_id' => $room->id,
+            'loggable_type' => HotelRoom::class,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
+        ]);
+
         return response()->json([
             'success' => true,
             'message' => 'Housekeeping staff berhasil di-assign',
@@ -96,6 +133,18 @@ class HousekeepingController extends Controller
     public function markAsClean(HotelRoom $room)
     {
         $room->markAsClean();
+
+        // Log activity
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => $room->property_id,
+            'action' => 'update',
+            'description' => auth()->user()->name . " menandai kamar {$room->room_number} sebagai bersih",
+            'loggable_id' => $room->id,
+            'loggable_type' => HotelRoom::class,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
+        ]);
 
         return redirect()->back()
             ->with('success', "Kamar {$room->room_number} telah ditandai sebagai bersih");
@@ -111,9 +160,24 @@ class HousekeepingController extends Controller
             'room_ids.*' => 'exists:hotel_rooms,id',
         ]);
 
+        $rooms = HotelRoom::whereIn('id', $validated['room_ids'])->get();
+        $roomNumbers = $rooms->pluck('room_number')->implode(', ');
+
         HotelRoom::whereIn('id', $validated['room_ids'])->update([
             'status' => 'vacant_clean',
             'last_cleaned_at' => now(),
+        ]);
+
+        // Log activity
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'property_id' => auth()->user()->property_id,
+            'action' => 'update',
+            'description' => auth()->user()->name . " menandai " . count($validated['room_ids']) . " kamar sebagai bersih (bulk): {$roomNumbers}",
+            'loggable_id' => null,
+            'loggable_type' => HotelRoom::class,
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
         ]);
 
         return response()->json([
