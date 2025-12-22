@@ -102,7 +102,9 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
                         </svg>
                         <p>Belum ada menu item</p>
-                        <p class="text-sm text-gray-400 mt-2">Tambahkan menu melalui Menu Management atau database</p>
+                        <p class="text-sm text-gray-400 mt-2">
+                            <a href="{{ route('restaurant.menu.create') }}" class="text-blue-600 hover:underline">Tambahkan menu pertama</a> melalui Menu Management
+                        </p>
                     </div>
                 </div>
             </div>

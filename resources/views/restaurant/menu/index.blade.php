@@ -106,7 +106,7 @@
 
     <!-- Pagination -->
     <div class="mt-4">
-        {{ $menuItems->links() }}
+        {{ $menuItems->appends(request()->query())->links() }}
     </div>
 </div>
 

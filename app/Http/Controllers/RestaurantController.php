@@ -233,13 +233,19 @@ class RestaurantController extends Controller
     /**
      * Menu management - list all menu items.
      */
-    public function menuIndex()
+    public function menuIndex(Request $request)
     {
         $user = auth()->user();
         $property = $user->property;
 
-        $menuItems = FnbMenuItem::where('property_id', $property->id)
-            ->orderBy('category')
+        $query = FnbMenuItem::where('property_id', $property->id);
+
+        // Filter by category if provided
+        if ($request->has('category')) {
+            $query->where('category', $request->category);
+        }
+
+        $menuItems = $query->orderBy('category')
             ->orderBy('name')
             ->paginate(20);
 
@@ -270,8 +276,11 @@ class RestaurantController extends Controller
             'category' => 'required|in:breakfast,lunch,dinner,appetizer,main_course,dessert,beverage,snack,alcohol',
             'price' => 'required|numeric|min:0',
             'description' => 'nullable|string',
-            'is_available' => 'boolean',
+            'is_available' => 'nullable|boolean',
         ]);
+
+        // Handle checkbox - if not checked, set to false
+        $validated['is_available'] = $request->has('is_available') ? true : false;
 
         FnbMenuItem::create(array_merge($validated, [
             'property_id' => $property->id,
@@ -315,8 +324,11 @@ class RestaurantController extends Controller
             'category' => 'required|in:breakfast,lunch,dinner,appetizer,main_course,dessert,beverage,snack,alcohol',
             'price' => 'required|numeric|min:0',
             'description' => 'nullable|string',
-            'is_available' => 'boolean',
+            'is_available' => 'nullable|boolean',
         ]);
+
+        // Handle checkbox - if not checked, set to false
+        $validated['is_available'] = $request->has('is_available') ? true : false;
 
         $menuItem->update($validated);
 
