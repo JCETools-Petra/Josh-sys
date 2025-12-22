@@ -185,4 +185,110 @@ class HousekeepingController extends Controller
             'message' => count($validated['room_ids']) . ' kamar berhasil ditandai sebagai bersih',
         ]);
     }
+
+    /**
+     * Show performance report.
+     */
+    public function performanceReport(Request $request)
+    {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Date range
+        $startDate = $request->filled('start_date') ? $request->start_date : now()->startOfMonth()->toDateString();
+        $endDate = $request->filled('end_date') ? $request->end_date : now()->toDateString();
+
+        // Get all housekeeping staff
+        $housekeepers = User::where('role', 'hk')
+            ->where('property_id', $property->id)
+            ->get();
+
+        $performanceData = [];
+
+        foreach ($housekeepers as $hk) {
+            // Get tasks completed by this staff
+            $tasks = \App\Models\HkTask::where('property_id', $property->id)
+                ->where('assigned_to', $hk->id)
+                ->whereBetween('task_date', [$startDate, $endDate])
+                ->get();
+
+            $completedTasks = $tasks->where('status', 'completed');
+            $totalTasks = $tasks->count();
+            $completionRate = $totalTasks > 0 ? ($completedTasks->count() / $totalTasks) * 100 : 0;
+
+            // Average duration
+            $avgDuration = $completedTasks->avg('duration_minutes');
+
+            // Average quality score
+            $inspectedTasks = $completedTasks->whereNotNull('quality_score');
+            $avgQualityScore = $inspectedTasks->avg('quality_score');
+
+            // Count by task type
+            $dailyCleaningCount = $completedTasks->where('task_type', 'daily_cleaning')->count();
+            $deepCleaningCount = $completedTasks->where('task_type', 'deep_cleaning')->count();
+
+            // Rooms cleaned
+            $roomsCleaned = HotelRoom::where('property_id', $property->id)
+                ->where('last_cleaned_by', $hk->id)
+                ->whereBetween('last_cleaned_at', [$startDate, $endDate])
+                ->count();
+
+            $performanceData[] = [
+                'staff' => $hk,
+                'total_tasks' => $totalTasks,
+                'completed_tasks' => $completedTasks->count(),
+                'completion_rate' => round($completionRate, 1),
+                'avg_duration' => $avgDuration ? round($avgDuration) : 0,
+                'avg_quality_score' => $avgQualityScore ? round($avgQualityScore, 1) : null,
+                'daily_cleaning_count' => $dailyCleaningCount,
+                'deep_cleaning_count' => $deepCleaningCount,
+                'rooms_cleaned' => $roomsCleaned,
+            ];
+        }
+
+        // Sort by completion rate
+        usort($performanceData, function($a, $b) {
+            return $b['completion_rate'] <=> $a['completion_rate'];
+        });
+
+        // Overall statistics
+        $overallStats = [
+            'total_tasks' => \App\Models\HkTask::where('property_id', $property->id)
+                ->whereBetween('task_date', [$startDate, $endDate])
+                ->count(),
+            'completed_tasks' => \App\Models\HkTask::where('property_id', $property->id)
+                ->whereBetween('task_date', [$startDate, $endDate])
+                ->where('status', 'completed')
+                ->count(),
+            'avg_duration' => round(\App\Models\HkTask::where('property_id', $property->id)
+                ->whereBetween('task_date', [$startDate, $endDate])
+                ->where('status', 'completed')
+                ->avg('duration_minutes')),
+            'avg_quality_score' => round(\App\Models\HkTask::where('property_id', $property->id)
+                ->whereBetween('task_date', [$startDate, $endDate])
+                ->where('status', 'completed')
+                ->whereNotNull('quality_score')
+                ->avg('quality_score'), 1),
+        ];
+
+        // Log activity
+        ActivityLog::create([
+            'user_id' => $user->id,
+            'property_id' => $property->id,
+            'action' => 'export',
+            'description' => $user->name . " melihat performance report housekeeping dari {$startDate} sampai {$endDate}",
+            'loggable_id' => null,
+            'loggable_type' => 'HousekeepingPerformance',
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent(),
+        ]);
+
+        return view('housekeeping.performance-report', compact(
+            'performanceData',
+            'overallStats',
+            'startDate',
+            'endDate',
+            'property'
+        ));
+    }
 }

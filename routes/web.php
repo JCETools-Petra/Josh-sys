@@ -108,6 +108,21 @@ Route::middleware(['auth', 'verified'])->prefix('frontoffice')->name('frontoffic
     // Guest management
     Route::get('/search-guest', [\App\Http\Controllers\FrontOfficeController::class, 'searchGuest'])->name('search-guest');
     Route::get('/guest/{guest}', [\App\Http\Controllers\FrontOfficeController::class, 'showGuest'])->name('guest.show');
+
+    // Extend & Change Room
+    Route::get('/extend-stay/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'showExtendStay'])->name('extend-stay.show');
+    Route::post('/extend-stay/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'extendStay'])->name('extend-stay');
+    Route::get('/change-room/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'showChangeRoom'])->name('change-room.show');
+    Route::post('/change-room/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'changeRoom'])->name('change-room');
+
+    // Group Check-in
+    Route::get('/group-checkin', [\App\Http\Controllers\FrontOfficeController::class, 'showGroupCheckIn'])->name('group-checkin.show');
+    Route::post('/group-checkin', [\App\Http\Controllers\FrontOfficeController::class, 'groupCheckIn'])->name('group-checkin');
+
+    // Folio Management
+    Route::get('/folio/{roomStay}', [\App\Http\Controllers\FolioController::class, 'show'])->name('folio');
+    Route::get('/folio/{roomStay}/print', [\App\Http\Controllers\FolioController::class, 'print'])->name('folio.print');
+    Route::post('/folio/{roomStay}/charge', [\App\Http\Controllers\FolioController::class, 'addCharge'])->name('folio.charge');
 });
 
 // Restaurant Routes - Role: pengguna_properti, admin
@@ -157,6 +172,30 @@ Route::middleware(['auth', 'verified'])->prefix('housekeeping')->name('housekeep
 
     // Staff assignment
     Route::post('/rooms/{room}/assign', [\App\Http\Controllers\HousekeepingController::class, 'assignHousekeeper'])->name('rooms.assign');
+
+    // Housekeeping Tasks
+    Route::get('/tasks', [\App\Http\Controllers\HkTaskController::class, 'index'])->name('tasks.index');
+    Route::get('/tasks/create', [\App\Http\Controllers\HkTaskController::class, 'create'])->name('tasks.create');
+    Route::post('/tasks', [\App\Http\Controllers\HkTaskController::class, 'store'])->name('tasks.store');
+    Route::get('/tasks/{task}', [\App\Http\Controllers\HkTaskController::class, 'show'])->name('tasks.show');
+    Route::post('/tasks/{task}/start', [\App\Http\Controllers\HkTaskController::class, 'start'])->name('tasks.start');
+    Route::post('/tasks/{task}/complete', [\App\Http\Controllers\HkTaskController::class, 'complete'])->name('tasks.complete');
+    Route::post('/tasks/{task}/checklist', [\App\Http\Controllers\HkTaskController::class, 'updateChecklist'])->name('tasks.checklist');
+    Route::post('/tasks/{task}/inspect', [\App\Http\Controllers\HkTaskController::class, 'inspect'])->name('tasks.inspect');
+    Route::post('/tasks/generate-auto', [\App\Http\Controllers\HkTaskController::class, 'generateAutoTasks'])->name('tasks.generate-auto');
+
+    // Lost & Found
+    Route::get('/lost-found', [\App\Http\Controllers\LostAndFoundController::class, 'index'])->name('lost-found.index');
+    Route::get('/lost-found/create', [\App\Http\Controllers\LostAndFoundController::class, 'create'])->name('lost-found.create');
+    Route::post('/lost-found', [\App\Http\Controllers\LostAndFoundController::class, 'store'])->name('lost-found.store');
+    Route::get('/lost-found/{lostAndFound}', [\App\Http\Controllers\LostAndFoundController::class, 'show'])->name('lost-found.show');
+    Route::get('/lost-found/{lostAndFound}/claim', [\App\Http\Controllers\LostAndFoundController::class, 'showClaimForm'])->name('lost-found.claim.show');
+    Route::post('/lost-found/{lostAndFound}/claim', [\App\Http\Controllers\LostAndFoundController::class, 'claim'])->name('lost-found.claim');
+    Route::post('/lost-found/{lostAndFound}/dispose', [\App\Http\Controllers\LostAndFoundController::class, 'dispose'])->name('lost-found.dispose');
+    Route::post('/lost-found/bulk-dispose', [\App\Http\Controllers\LostAndFoundController::class, 'bulkDispose'])->name('lost-found.bulk-dispose');
+
+    // Performance Report
+    Route::get('/performance', [\App\Http\Controllers\HousekeepingController::class, 'performanceReport'])->name('performance');
 });
 
 require __DIR__ . '/auth.php';

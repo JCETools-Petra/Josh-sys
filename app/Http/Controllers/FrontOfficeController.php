@@ -8,8 +8,10 @@ use App\Models\HotelRoom;
 use App\Models\RoomStay;
 use App\Models\Guest;
 use App\Models\RoomType;
+use App\Models\RoomChange;
 use App\Services\FrontOfficeService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class FrontOfficeController extends Controller
@@ -498,5 +500,358 @@ class FrontOfficeController extends Controller
             'success' => true,
             'rooms' => $availableRooms,
         ]);
+    }
+
+    /**
+     * Show extend stay form.
+     */
+    public function showExtendStay(RoomStay $roomStay)
+    {
+        $roomStay->load(['guest', 'hotelRoom.roomType.pricingRule', 'property']);
+
+        // Ensure room stay is active
+        if ($roomStay->status !== 'checked_in') {
+            return redirect()->back()
+                ->with('error', 'Hanya tamu yang sedang menginap yang bisa diperpanjang.');
+        }
+
+        return view('frontoffice.extend-stay', compact('roomStay'));
+    }
+
+    /**
+     * Process extend stay.
+     */
+    public function extendStay(Request $request, RoomStay $roomStay)
+    {
+        $validated = $request->validate([
+            'new_check_out_date' => 'required|date|after:' . $roomStay->check_out_date->format('Y-m-d'),
+            'reason' => 'nullable|string',
+            'notes' => 'nullable|string',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $user = auth()->user();
+            $property = $user->property;
+
+            // Calculate additional nights and charge
+            $oldCheckOutDate = $roomStay->check_out_date;
+            $newCheckOutDate = Carbon::parse($validated['new_check_out_date']);
+            $additionalNights = $oldCheckOutDate->diffInDays($newCheckOutDate);
+            $additionalCharge = $roomStay->room_rate_per_night * $additionalNights;
+            $additionalTax = $additionalCharge * 0.10;
+            $additionalService = $additionalCharge * 0.05;
+
+            // Record the change
+            RoomChange::create([
+                'property_id' => $property->id,
+                'room_stay_id' => $roomStay->id,
+                'change_type' => 'extend_stay',
+                'old_check_out_date' => $oldCheckOutDate,
+                'new_check_out_date' => $newCheckOutDate,
+                'old_rate' => $roomStay->room_rate_per_night,
+                'new_rate' => $roomStay->room_rate_per_night,
+                'additional_charge' => $additionalCharge + $additionalTax + $additionalService,
+                'reason' => $validated['reason'] ?? 'Guest request',
+                'notes' => $validated['notes'],
+                'processed_by' => $user->id,
+                'processed_at' => now(),
+            ]);
+
+            // Update room stay
+            $roomStay->update([
+                'check_out_date' => $newCheckOutDate,
+                'total_room_charge' => $roomStay->total_room_charge + $additionalCharge,
+                'tax_amount' => $roomStay->tax_amount + $additionalTax,
+                'service_charge' => $roomStay->service_charge + $additionalService,
+            ]);
+
+            // Log activity
+            ActivityLog::create([
+                'user_id' => $user->id,
+                'property_id' => $property->id,
+                'action' => 'update',
+                'description' => $user->name . " memperpanjang stay tamu {$roomStay->guest->full_name}, kamar {$roomStay->hotelRoom->room_number}, dari {$oldCheckOutDate->format('d/m/Y')} menjadi {$newCheckOutDate->format('d/m/Y')}, tambahan: Rp " . number_format($additionalCharge + $additionalTax + $additionalService, 0, ',', '.'),
+                'loggable_id' => $roomStay->id,
+                'loggable_type' => RoomStay::class,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
+            DB::commit();
+
+            return redirect()->route('frontoffice.index')
+                ->with('success', "Stay berhasil diperpanjang sampai {$newCheckOutDate->format('d M Y')}. Tambahan biaya: Rp " . number_format($additionalCharge + $additionalTax + $additionalService, 0, ',', '.'));
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Gagal memperpanjang stay: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Show change room form.
+     */
+    public function showChangeRoom(RoomStay $roomStay)
+    {
+        $roomStay->load(['guest', 'hotelRoom.roomType', 'property']);
+
+        // Ensure room stay is active
+        if ($roomStay->status !== 'checked_in') {
+            return redirect()->back()
+                ->with('error', 'Hanya tamu yang sedang menginap yang bisa pindah kamar.');
+        }
+
+        // Get available rooms
+        $property = $roomStay->property;
+        $availableRooms = $property->hotelRooms()
+            ->available()
+            ->where('id', '!=', $roomStay->hotel_room_id)
+            ->with('roomType.pricingRule')
+            ->get();
+
+        return view('frontoffice.change-room', compact('roomStay', 'availableRooms'));
+    }
+
+    /**
+     * Process change room.
+     */
+    public function changeRoom(Request $request, RoomStay $roomStay)
+    {
+        $validated = $request->validate([
+            'new_room_id' => 'required|exists:hotel_rooms,id',
+            'new_rate' => 'required|numeric|min:0',
+            'reason' => 'required|string',
+            'notes' => 'nullable|string',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $user = auth()->user();
+            $property = $user->property;
+
+            $oldRoom = $roomStay->hotelRoom;
+            $newRoom = HotelRoom::findOrFail($validated['new_room_id']);
+
+            // Check if new room is available
+            if ($newRoom->status !== 'vacant_clean') {
+                throw new \Exception("Kamar {$newRoom->room_number} tidak tersedia.");
+            }
+
+            // Calculate remaining nights
+            $remainingNights = now()->diffInDays($roomStay->check_out_date);
+            $oldRoomCharge = $roomStay->room_rate_per_night * $remainingNights;
+            $newRoomCharge = $validated['new_rate'] * $remainingNights;
+            $additionalCharge = $newRoomCharge - $oldRoomCharge;
+
+            // Record the change
+            RoomChange::create([
+                'property_id' => $property->id,
+                'room_stay_id' => $roomStay->id,
+                'old_room_id' => $oldRoom->id,
+                'new_room_id' => $newRoom->id,
+                'change_type' => 'room_change',
+                'old_rate' => $roomStay->room_rate_per_night,
+                'new_rate' => $validated['new_rate'],
+                'additional_charge' => $additionalCharge,
+                'reason' => $validated['reason'],
+                'notes' => $validated['notes'],
+                'processed_by' => $user->id,
+                'processed_at' => now(),
+            ]);
+
+            // Update old room status
+            $oldRoom->update([
+                'status' => 'vacant_dirty',
+            ]);
+
+            // Update new room status
+            $newRoom->update([
+                'status' => 'occupied',
+            ]);
+
+            // Update room stay
+            $roomStay->update([
+                'hotel_room_id' => $newRoom->id,
+                'room_type_id' => $newRoom->room_type_id,
+                'room_rate_per_night' => $validated['new_rate'],
+            ]);
+
+            // Recalculate total charges (for remaining nights)
+            $totalNights = $roomStay->check_in_date->diffInDays($roomStay->check_out_date);
+            $completedNights = $roomStay->actual_check_in->diffInDays(now());
+            $newTotalCharge = ($roomStay->room_rate_per_night * $completedNights) + ($validated['new_rate'] * $remainingNights);
+
+            $roomStay->update([
+                'total_room_charge' => $newTotalCharge,
+                'tax_amount' => $newTotalCharge * 0.10,
+                'service_charge' => $newTotalCharge * 0.05,
+            ]);
+
+            // Log activity
+            ActivityLog::create([
+                'user_id' => $user->id,
+                'property_id' => $property->id,
+                'action' => 'update',
+                'description' => $user->name . " memindahkan tamu {$roomStay->guest->full_name} dari kamar {$oldRoom->room_number} ke {$newRoom->room_number}, alasan: {$validated['reason']}, selisih biaya: Rp " . number_format($additionalCharge, 0, ',', '.'),
+                'loggable_id' => $roomStay->id,
+                'loggable_type' => RoomStay::class,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
+            DB::commit();
+
+            return redirect()->route('frontoffice.index')
+                ->with('success', "Tamu berhasil dipindahkan ke kamar {$newRoom->room_number}");
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Gagal memindahkan kamar: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Show group check-in form.
+     */
+    public function showGroupCheckIn()
+    {
+        $user = auth()->user();
+        $property = $user->property;
+
+        $availableRooms = $property->hotelRooms()
+            ->available()
+            ->with('roomType.pricingRule')
+            ->get();
+
+        $barActive = $property->bar_active ?? 'bar_1';
+
+        return view('frontoffice.group-checkin', compact('property', 'availableRooms', 'barActive'));
+    }
+
+    /**
+     * Process group check-in.
+     */
+    public function groupCheckIn(Request $request)
+    {
+        $validated = $request->validate([
+            'group_name' => 'required|string|max:255',
+            'check_in_date' => 'required|date',
+            'check_out_date' => 'required|date|after:check_in_date',
+            'source' => 'required|in:walk_in,ota,ta,corporate,government,compliment,house_use,affiliate,online',
+            'special_requests' => 'nullable|string',
+            'rooms' => 'required|array|min:1',
+            'rooms.*.hotel_room_id' => 'required|exists:hotel_rooms,id',
+            'rooms.*.room_rate_per_night' => 'required|numeric|min:0',
+            'rooms.*.adults' => 'required|integer|min:1',
+            'rooms.*.children' => 'nullable|integer|min:0',
+            'rooms.*.guest_first_name' => 'required|string|max:255',
+            'rooms.*.guest_last_name' => 'nullable|string|max:255',
+            'rooms.*.guest_email' => 'nullable|email',
+            'rooms.*.guest_phone' => 'required|string|max:20',
+            'rooms.*.guest_id_type' => 'required|in:ktp,passport,sim,other',
+            'rooms.*.guest_id_number' => 'required|string|max:50',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $user = auth()->user();
+            $property = $user->property;
+            $checkInDate = Carbon::parse($validated['check_in_date']);
+            $checkOutDate = Carbon::parse($validated['check_out_date']);
+            $nights = $checkInDate->diffInDays($checkOutDate);
+            $barActive = $property->bar_active ?? 'bar_1';
+            $barLevel = (int) str_replace('bar_', '', $barActive);
+
+            $roomStays = [];
+            $totalRooms = count($validated['rooms']);
+
+            foreach ($validated['rooms'] as $roomData) {
+                // Find or create guest
+                $guest = $this->frontOfficeService->findOrCreateGuest([
+                    'first_name' => $roomData['guest_first_name'],
+                    'last_name' => $roomData['guest_last_name'] ?? '',
+                    'email' => $roomData['guest_email'] ?? null,
+                    'phone' => $roomData['guest_phone'],
+                    'id_type' => $roomData['guest_id_type'],
+                    'id_number' => $roomData['guest_id_number'],
+                ]);
+
+                $room = HotelRoom::findOrFail($roomData['hotel_room_id']);
+
+                // Check room availability
+                if ($room->status !== 'vacant_clean') {
+                    throw new \Exception("Kamar {$room->room_number} tidak tersedia.");
+                }
+
+                $totalRoomCharge = $roomData['room_rate_per_night'] * $nights;
+                $taxAmount = $totalRoomCharge * 0.10;
+                $serviceCharge = $totalRoomCharge * 0.05;
+
+                // Create room stay
+                $roomStay = RoomStay::create([
+                    'property_id' => $property->id,
+                    'hotel_room_id' => $room->id,
+                    'guest_id' => $guest->id,
+                    'room_type_id' => $room->room_type_id,
+                    'source' => $validated['source'],
+                    'check_in_date' => $checkInDate,
+                    'check_out_date' => $checkOutDate,
+                    'actual_check_in' => now(),
+                    'room_rate_per_night' => $roomData['room_rate_per_night'],
+                    'bar_level' => $barLevel,
+                    'total_room_charge' => $totalRoomCharge,
+                    'tax_amount' => $taxAmount,
+                    'service_charge' => $serviceCharge,
+                    'adults' => $roomData['adults'],
+                    'children' => $roomData['children'] ?? 0,
+                    'special_requests' => $validated['special_requests'],
+                    'status' => 'checked_in',
+                    'status_changed_at' => now(),
+                    'payment_status' => 'unpaid',
+                    'checked_in_by' => $user->id,
+                    'notes' => "Group: {$validated['group_name']}",
+                ]);
+
+                // Update room status
+                $room->update(['status' => 'occupied']);
+
+                // Update daily occupancy
+                $this->frontOfficeService->updateDailyOccupancy($property->id, $checkInDate);
+
+                $roomStays[] = $roomStay;
+            }
+
+            // Log activity
+            $roomNumbers = collect($roomStays)->map(fn($rs) => $rs->hotelRoom->room_number)->implode(', ');
+            ActivityLog::create([
+                'user_id' => $user->id,
+                'property_id' => $property->id,
+                'action' => 'create',
+                'description' => $user->name . " melakukan group check-in '{$validated['group_name']}', {$totalRooms} kamar: {$roomNumbers}, dari {$checkInDate->format('d/m/Y')} sampai {$checkOutDate->format('d/m/Y')}",
+                'loggable_id' => null,
+                'loggable_type' => RoomStay::class,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
+            DB::commit();
+
+            return redirect()->route('frontoffice.index')
+                ->with('success', "Group check-in berhasil! {$totalRooms} kamar telah di-check-in untuk group '{$validated['group_name']}'");
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()
+                ->withInput()
+                ->with('error', 'Gagal melakukan group check-in: ' . $e->getMessage());
+        }
     }
 }
