@@ -48,7 +48,7 @@ Route::get('/', function () {
         } elseif ($user->role === 'inventaris') {
             return redirect()->route('inventory.dashboard');
         } elseif ($user->role === 'hk') {
-            return redirect()->route('housekeeping.inventory.index');
+            return redirect()->route('housekeeping.dashboard');
         }
         return redirect()->route('dashboard');
     }
@@ -73,7 +73,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         } elseif ($user->role === 'inventaris') { // <-- INI BAGIAN YANG DIPERBAIKI
             return redirect()->route('inventory.dashboard'); // <-- INI BAGIAN YANG DIPERBAIKI
         } elseif ($user->role === 'hk') {
-            return redirect()->route('housekeeping.inventory.index');
+            return redirect()->route('housekeeping.dashboard');
         }
         abort(403, 'Tidak ada dashboard yang sesuai untuk peran Anda.');
     })->name('dashboard');
@@ -160,12 +160,13 @@ Route::middleware(['auth', 'verified'])->prefix('reports')->name('reports.')->gr
     Route::get('/fnb-sales', [\App\Http\Controllers\ReportController::class, 'fnbSales'])->name('fnb-sales');
 });
 
-// Housekeeping Routes - Role: hk, pengguna_properti, admin
-Route::middleware(['auth', 'verified'])->prefix('housekeeping')->name('housekeeping.')->group(function () {
-    // Note: housekeeping.inventory routes already exist, we add PMS routes here
-    Route::get('/dashboard', [\App\Http\Controllers\HousekeepingController::class, 'index'])->name('dashboard');
+// Housekeeping Routes - Role: hk only (Staff Housekeeping)
+Route::middleware(['auth', 'verified', 'role:hk'])->prefix('housekeeping')->name('housekeeping.')->group(function () {
+    // Dashboard khusus housekeeping staff
+    Route::get('/dashboard', [\App\Http\Controllers\HousekeepingDashboardController::class, 'index'])->name('dashboard');
+    Route::post('/quick-mark-clean/{room}', [\App\Http\Controllers\HousekeepingDashboardController::class, 'quickMarkClean'])->name('quick-mark-clean');
 
-    // Room status management
+    // Room status management (hanya untuk HK staff)
     Route::patch('/rooms/{room}/status', [\App\Http\Controllers\HousekeepingController::class, 'updateRoomStatus'])->name('rooms.update-status');
     Route::post('/rooms/{room}/mark-clean', [\App\Http\Controllers\HousekeepingController::class, 'markAsClean'])->name('rooms.mark-clean');
     Route::post('/rooms/bulk-mark-clean', [\App\Http\Controllers\HousekeepingController::class, 'bulkMarkAsClean'])->name('rooms.bulk-mark-clean');
@@ -196,6 +197,23 @@ Route::middleware(['auth', 'verified'])->prefix('housekeeping')->name('housekeep
 
     // Performance Report
     Route::get('/performance', [\App\Http\Controllers\HousekeepingController::class, 'performanceReport'])->name('performance');
+});
+
+// Housekeeping Management Routes - Role: pengguna_properti, admin (Supervisor/Manager)
+Route::middleware(['auth', 'verified', 'role:pengguna_properti,admin,owner'])->prefix('housekeeping-manage')->name('housekeeping.manage.')->group(function () {
+    // Dashboard management untuk supervisor
+    Route::get('/overview', [\App\Http\Controllers\HousekeepingController::class, 'index'])->name('overview');
+
+    // Staff assignment (hanya supervisor/manager)
+    Route::post('/rooms/{room}/assign', [\App\Http\Controllers\HousekeepingController::class, 'assignHousekeeper'])->name('assign');
+
+    // Task management untuk supervisor
+    Route::get('/tasks/all', [\App\Http\Controllers\HkTaskController::class, 'index'])->name('tasks.all');
+    Route::post('/tasks/generate-auto', [\App\Http\Controllers\HkTaskController::class, 'generateAutoTasks'])->name('tasks.generate');
+    Route::post('/tasks/{task}/inspect', [\App\Http\Controllers\HkTaskController::class, 'inspect'])->name('tasks.inspect');
+
+    // Performance report (hanya supervisor/manager)
+    Route::get('/performance', [\App\Http\Controllers\HousekeepingController::class, 'performanceReport'])->name('performance.report');
 });
 
 require __DIR__ . '/auth.php';
