@@ -168,23 +168,36 @@
         <div class="bg-white rounded-lg shadow-lg p-6">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-bold text-gray-800">Manajemen Menu</h2>
-                <button onclick="showAddMenuItem()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">
-                    <svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                    </svg>
-                    Tambah Menu
-                </button>
+                <div class="flex space-x-2">
+                    <a href="{{ route('restaurant.menu.index') }}" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition">
+                        <svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                        </svg>
+                        Lihat Semua Menu
+                    </a>
+                    <button onclick="showAddMenuItem()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">
+                        <svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Tambah Menu
+                    </button>
+                </div>
             </div>
 
             <div class="text-center py-12 text-gray-500">
                 <svg class="w-20 h-20 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
                 </svg>
-                <p class="text-lg mb-4">Belum ada menu item</p>
-                <p class="text-sm text-gray-400 mb-4">Mulai tambahkan menu makanan dan minuman untuk restaurant Anda</p>
-                <button onclick="showAddMenuItem()" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition">
-                    Tambah Menu Pertama
-                </button>
+                <p class="text-lg mb-4">Kelola Menu Restaurant</p>
+                <p class="text-sm text-gray-400 mb-4">Tambahkan dan kelola menu makanan dan minuman untuk restaurant Anda</p>
+                <div class="flex justify-center space-x-3">
+                    <a href="{{ route('restaurant.menu.index') }}" class="inline-block bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-lg transition">
+                        Lihat Semua Menu
+                    </a>
+                    <button onclick="showAddMenuItem()" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition">
+                        Tambah Menu Baru
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -235,7 +248,7 @@ function switchTab(tabName) {
 }
 
 function showAddMenuItem() {
-    alert('Fitur tambah menu item akan segera tersedia!\n\nUntuk saat ini, menu item dapat ditambahkan melalui database atau tinker.');
+    window.location.href = '{{ route("restaurant.menu.create") }}';
 }
 
 async function updateOrderStatus(orderId, newStatus) {
