@@ -82,11 +82,18 @@ class DashboardController extends Controller
         $propertyId = $request->query('property_id');
         $range = $request->query('range', 'month');
 
-        $eventsQuery = Reservation::query();
+        $eventsQuery = Reservation::query()->with('guest:id,name');
         if ($propertyId && $propertyId !== 'all') {
             $eventsQuery->where('property_id', $propertyId);
         }
-        $events = $eventsQuery->select('id', 'guest_name as title', 'checkin_date as start', 'checkout_date as end')->get();
+        $events = $eventsQuery->get()->map(function($reservation) {
+            return [
+                'id' => $reservation->id,
+                'title' => $reservation->guest->name ?? 'Guest',
+                'start' => $reservation->check_in_date->format('Y-m-d'),
+                'end' => $reservation->check_out_date->format('Y-m-d'),
+            ];
+        });
 
         $startDate = $range === 'year' ? Carbon::now()->subYear() : Carbon::now()->subDays(30);
         $chartQuery = DailyOccupancy::where('date', '>=', $startDate);

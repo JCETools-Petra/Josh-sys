@@ -47,8 +47,16 @@ class PropertyIncomeController extends Controller
         }
         
         $events = Reservation::where('property_id', $property->id)
-            ->select('id', 'guest_name as title', 'checkin_date as start', 'checkout_date as end')
-            ->get();
+            ->with('guest:id,name')
+            ->get()
+            ->map(function($reservation) {
+                return [
+                    'id' => $reservation->id,
+                    'title' => $reservation->guest->name ?? 'Guest',
+                    'start' => $reservation->check_in_date->format('Y-m-d'),
+                    'end' => $reservation->check_out_date->format('Y-m-d'),
+                ];
+            });
 
         $startDate = Carbon::now()->subDays(30);
         $chartOccupancyData = DailyOccupancy::where('property_id', $property->id)
@@ -99,8 +107,8 @@ class PropertyIncomeController extends Controller
             
         // --- DATA BARU: Reservasi Aktif / Mendatang ---
         $reservations = Reservation::where('property_id', $property->id)
-            ->where('checkout_date', '>=', $today) // Ambil yang belum checkout
-            ->orderBy('checkin_date', 'asc') // Urutkan dari yang paling dekat check-in
+            ->where('check_out_date', '>=', $today) // Ambil yang belum checkout
+            ->orderBy('check_in_date', 'asc') // Urutkan dari yang paling dekat check-in
             ->limit(10) // Batasi 10 data untuk dashboard
             ->get();
             
@@ -195,11 +203,14 @@ class PropertyIncomeController extends Controller
         $validated = $request->validate([
             'source' => 'required|string',
             'guest_name' => 'required|string|max:255',
-            'checkin_date' => 'required|date',
-            'checkout_date' => 'required|date|after_or_equal:checkin_date',
+            'guest_email' => 'nullable|email',
+            'guest_phone' => 'nullable|string',
+            'check_in_date' => 'required|date',
+            'check_out_date' => 'required|date|after_or_equal:check_in_date',
+            'room_type_id' => 'required|exists:room_types,id',
         ]);
 
-        $finalPrice = $this->priceService->getCurrentPricesForProperty($property->id, $validated['checkin_date'])
+        $finalPrice = $this->priceService->getCurrentPricesForProperty($property->id, $validated['check_in_date'])
                                         ->firstWhere('name', $request->room_type_name)['price_ota'] ?? 0;
 
         Reservation::create($validated + [

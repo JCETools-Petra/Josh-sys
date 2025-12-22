@@ -99,6 +99,7 @@ Route::middleware(['auth', 'verified'])->prefix('frontoffice')->name('frontoffic
     Route::get('/checkout/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'checkOut'])->name('checkout');
     Route::post('/checkout/{roomStay}/process', [\App\Http\Controllers\FrontOfficeController::class, 'processCheckout'])->name('checkout.process');
     Route::get('/invoice/{roomStay}', [\App\Http\Controllers\FrontOfficeController::class, 'printInvoice'])->name('invoice');
+    Route::get('/invoice/{roomStay}/pdf', [\App\Http\Controllers\FrontOfficeController::class, 'downloadInvoicePdf'])->name('invoice.pdf');
     Route::get('/mark-clean/{room}', [\App\Http\Controllers\FrontOfficeController::class, 'markRoomClean'])->name('mark-clean');
 
     // Room search

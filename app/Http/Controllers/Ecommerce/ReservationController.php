@@ -37,26 +37,28 @@ class ReservationController extends Controller
     {
         // Ambil kata kunci pencarian dari request
         $search = $request->input('search');
-    
-        $query = Reservation::query();
-    
+
+        $query = Reservation::with('guest');
+
         // Peran 'ecommerce' bisa melihat semua reservasi.
         // Peran lain (jika ada yang mengakses) hanya melihat milik mereka.
         if (Auth::user()->role !== 'online_ecommerce') {
-            $query->where('user_id', Auth::id());
+            $query->where('created_by', Auth::id());
         }
-    
+
         // Terapkan filter pencarian jika ada input
         $query->when($search, function ($q, $search) {
-            // Cari berdasarkan nama tamu
-            return $q->where('guest_name', 'like', "%{$search}%");
+            // Cari berdasarkan nama tamu melalui relasi
+            return $q->whereHas('guest', function($guestQuery) use ($search) {
+                $guestQuery->where('name', 'like', "%{$search}%");
+            });
         });
-        
+
         // Urutkan dan tampilkan dengan paginasi
-        $reservations = $query->orderBy('checkin_date', 'desc')
+        $reservations = $query->orderBy('check_in_date', 'desc')
             ->paginate(10)
             ->withQueryString(); // Agar paginasi tetap membawa query pencarian
-    
+
         // Kirim data ke view
         return view('property.reservations.index', compact('reservations', 'search'));
     }
@@ -87,22 +89,60 @@ class ReservationController extends Controller
         $request->validate([
             'guest_name' => 'required|string|max:255',
             'guest_email' => 'nullable|email|max:255',
-            'checkin_date' => 'required|date',
-            'checkout_date' => 'required|date|after_or_equal:checkin_date',
+            'guest_phone' => 'required|string|max:20',
+            'check_in_date' => 'required|date',
+            'check_out_date' => 'required|date|after_or_equal:check_in_date',
             'property_id' => 'required|integer|exists:properties,id',
-            'room_type_id' => 'required|integer|exists:room_types,id', 
+            'room_type_id' => 'required|integer|exists:room_types,id',
             'number_of_rooms' => 'required|integer|min:1',
             'final_price' => 'required|numeric|min:0',
         ]);
 
-        $data = $request->all();
-        $data['user_id'] = Auth::id();
-        $reservation = Reservation::create($data);
+        // Find or create guest
+        $guest = \App\Models\Guest::firstOrCreate(
+            [
+                'property_id' => $request->property_id,
+                'email' => $request->guest_email,
+            ],
+            [
+                'name' => $request->guest_name,
+                'phone' => $request->guest_phone ?? '',
+            ]
+        );
+
+        // Calculate nights
+        $checkIn = \Carbon\Carbon::parse($request->check_in_date);
+        $checkOut = \Carbon\Carbon::parse($request->check_out_date);
+        $nights = $checkIn->diffInDays($checkOut);
+
+        // Generate reservation number
+        $property = \App\Models\Property::find($request->property_id);
+        $reservationNumber = 'RSV-' . strtoupper(substr($property->name, 0, 3)) . '-' . now()->format('Ymd') . '-' . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
+
+        // Create reservation
+        $reservation = Reservation::create([
+            'property_id' => $request->property_id,
+            'guest_id' => $guest->id,
+            'room_type_id' => $request->room_type_id,
+            'reservation_number' => $reservationNumber,
+            'check_in_date' => $request->check_in_date,
+            'check_out_date' => $request->check_out_date,
+            'nights' => $nights,
+            'adults' => 1,
+            'children' => 0,
+            'room_rate_per_night' => $request->final_price / $nights,
+            'total_room_charge' => $request->final_price,
+            'deposit_amount' => 0,
+            'deposit_paid' => 0,
+            'source' => 'website',
+            'status' => 'pending',
+            'created_by' => Auth::id(),
+        ]);
 
         $this->updateDailyOccupancies($reservation, 'increment');
 
         return redirect()->route('property.reservations.index')
-        ->with('success', 'Reservasi untuk ' . $request->guest_name . ' berhasil dibuat.');
+            ->with('success', 'Reservasi untuk ' . $request->guest_name . ' berhasil dibuat.');
     }
     
     public function getRoomTypesByProperty(Property $property)
@@ -140,13 +180,32 @@ class ReservationController extends Controller
         $request->validate([
             'guest_name' => 'required|string|max:255',
             'guest_email' => 'nullable|email|max:255',
-            'checkin_date' => 'required|date',
-            'checkout_date' => 'required|date|after_or_equal:checkin_date',
+            'check_in_date' => 'required|date',
+            'check_out_date' => 'required|date|after_or_equal:check_in_date',
             'property_id' => 'required|integer|exists:properties,id',
             'number_of_rooms' => 'required|integer|min:1',
+            'final_price' => 'required|numeric|min:0',
         ]);
-        
-        $reservation->update($request->all());
+
+        // Update guest information
+        $reservation->guest->update([
+            'name' => $request->guest_name,
+            'email' => $request->guest_email,
+        ]);
+
+        // Recalculate nights
+        $checkIn = \Carbon\Carbon::parse($request->check_in_date);
+        $checkOut = \Carbon\Carbon::parse($request->check_out_date);
+        $nights = $checkIn->diffInDays($checkOut);
+
+        // Update reservation
+        $reservation->update([
+            'check_in_date' => $request->check_in_date,
+            'check_out_date' => $request->check_out_date,
+            'nights' => $nights,
+            'room_rate_per_night' => $request->final_price / $nights,
+            'total_room_charge' => $request->final_price,
+        ]);
 
         $this->updateDailyOccupancies($oldReservationData, 'decrement');
         $this->updateDailyOccupancies($reservation, 'increment');
@@ -173,8 +232,8 @@ class ReservationController extends Controller
     private function updateDailyOccupancies(Reservation $reservation, string $action)
     {
         // Ubah periode agar mencakup tanggal checkout
-        $period = CarbonPeriod::create($reservation->checkin_date, $reservation->checkout_date);
-        $rooms = $reservation->number_of_rooms;
+        $period = CarbonPeriod::create($reservation->check_in_date, $reservation->check_out_date);
+        $rooms = 1; // Asumsi 1 kamar per reservasi (sesuai struktur baru)
 
         foreach ($period as $date) {
             $dailyOccupancy = DailyOccupancy::firstOrCreate(
@@ -190,17 +249,17 @@ class ReservationController extends Controller
             );
 
             if ($action === 'increment') {
-                if ($reservation->source === 'properti') {
-                    $dailyOccupancy->increment('reservasi_properti', $rooms);
-                } else {
+                if (in_array($reservation->source, ['ota', 'website'])) {
                     $dailyOccupancy->increment('reservasi_ota', $rooms);
+                } else {
+                    $dailyOccupancy->increment('reservasi_properti', $rooms);
                 }
                 $dailyOccupancy->increment('occupied_rooms', $rooms);
             } else { // decrement
-                if ($reservation->source === 'properti') {
-                    $dailyOccupancy->decrement('reservasi_properti', $rooms);
-                } else {
+                if (in_array($reservation->source, ['ota', 'website'])) {
                     $dailyOccupancy->decrement('reservasi_ota', $rooms);
+                } else {
+                    $dailyOccupancy->decrement('reservasi_properti', $rooms);
                 }
                 $dailyOccupancy->decrement('occupied_rooms', $rooms);
             }

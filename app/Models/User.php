@@ -58,7 +58,15 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     public function isHousekeeper()
-{
-    return $this->role === 'hk';
-}
+    {
+        return $this->role === 'hk';
+    }
+
+    /**
+     * Get the rooms assigned to this housekeeper.
+     */
+    public function assignedRooms()
+    {
+        return $this->hasMany(HotelRoom::class, 'assigned_hk_user_id');
+    }
 }

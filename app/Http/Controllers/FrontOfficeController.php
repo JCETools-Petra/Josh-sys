@@ -331,9 +331,23 @@ class FrontOfficeController extends Controller
      */
     public function printInvoice(RoomStay $roomStay)
     {
-        $roomStay->load(['guest', 'hotelRoom.roomType', 'property', 'fnbOrders.items']);
+        $roomStay->load(['guest', 'hotelRoom.roomType', 'property', 'fnbOrders.items.menuItem', 'payments']);
 
         return view('frontoffice.invoice', compact('roomStay'));
+    }
+
+    /**
+     * Download invoice as PDF.
+     */
+    public function downloadInvoicePdf(RoomStay $roomStay)
+    {
+        $roomStay->load(['guest', 'hotelRoom.roomType', 'property', 'fnbOrders.items.menuItem', 'payments']);
+
+        $pdf = \PDF::loadView('frontoffice.invoice-pdf', compact('roomStay'));
+
+        $filename = 'invoice-' . $roomStay->confirmation_number . '.pdf';
+
+        return $pdf->download($filename);
     }
 
     /**
