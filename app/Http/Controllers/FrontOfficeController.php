@@ -355,7 +355,23 @@ class FrontOfficeController extends Controller
      */
     public function checkOut(RoomStay $roomStay)
     {
-        $roomStay->load(['guest', 'hotelRoom.roomType', 'fnbOrders.items.menuItem', 'payments']);
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Validate property ownership
+        if ($roomStay->property_id !== $property->id) {
+            abort(403, 'Anda tidak memiliki akses ke room stay ini.');
+        }
+
+        // Eager load relationships to prevent N+1 queries
+        $roomStay->load([
+            'guest',
+            'hotelRoom.roomType',
+            'fnbOrders' => function ($query) {
+                $query->with('items.menuItem');
+            },
+            'payments'
+        ]);
 
         return view('frontoffice.checkout-payment', compact('roomStay'));
     }
@@ -365,39 +381,88 @@ class FrontOfficeController extends Controller
      */
     public function processCheckout(Request $request, RoomStay $roomStay)
     {
+        $user = auth()->user();
+        $property = $user->property;
+
+        if (!$property) {
+            abort(403, 'Akun Anda tidak terikat dengan properti manapun.');
+        }
+
+        // Validate property ownership
+        if ($roomStay->property_id !== $property->id) {
+            abort(403, 'Anda tidak memiliki akses ke room stay ini.');
+        }
+
+        // Validate room stay status
+        if ($roomStay->status !== RoomStayStatus::CHECKED_IN->value) {
+            return redirect()->back()
+                ->with('error', 'Room stay harus dalam status checked-in untuk melakukan checkout.');
+        }
+
         $validated = $request->validate([
-            'payments' => 'required|array|min:1',
-            'payments.*.payment_method' => 'required|in:cash,credit_card,debit_card,bank_transfer,other',
-            'payments.*.amount' => 'required|numeric|min:0',
-            'payments.*.card_number_last4' => 'nullable|string|max:4',
+            'payments' => 'required|array|min:1|max:10',
+            'payments.*.payment_method' => ['required', Rule::in(PaymentMethod::values())],
+            'payments.*.amount' => 'required|numeric|min:1|max:999999999',
+            'payments.*.card_number_last4' => 'nullable|string|size:4|regex:/^[0-9]{4}$/',
             'payments.*.card_holder_name' => 'nullable|string|max:255',
             'payments.*.card_type' => 'nullable|string|max:50',
             'payments.*.bank_name' => 'nullable|string|max:255',
             'payments.*.reference_number' => 'nullable|string|max:255',
-            'payments.*.notes' => 'nullable|string',
+            'payments.*.notes' => 'nullable|string|max:500',
         ]);
 
         try {
-            $user = auth()->user();
-            $property = $user->property;
+            DB::beginTransaction();
 
-            // Calculate total bill
-            $totalBill = $roomStay->total_room_charge
-                       + $roomStay->fnbOrders->sum('total_amount')
-                       + $roomStay->tax_amount
-                       + $roomStay->service_charge;
+            // Calculate total bill using aggregate query to avoid N+1
+            $fnbTotal = \App\Models\FnbOrder::where('room_stay_id', $roomStay->id)
+                ->sum('total_amount');
+
+            $totalBill = round(
+                $roomStay->total_room_charge
+                + $roomStay->total_breakfast_charge
+                + $fnbTotal
+                + $roomStay->tax_amount
+                + $roomStay->service_charge
+                - ($roomStay->discount_amount ?? 0),
+                2
+            );
 
             // Calculate total payment amount
-            $totalPaid = collect($validated['payments'])->sum('amount');
+            $totalPaid = round(collect($validated['payments'])->sum('amount'), 2);
 
-            // Validate total paid matches total bill
-            if (abs($totalPaid - $totalBill) > 0.01) {
-                return redirect()->back()
-                    ->withInput()
-                    ->with('error', 'Total pembayaran tidak sesuai dengan tagihan. Tagihan: Rp ' . number_format($totalBill, 0, ',', '.') . ', Dibayar: Rp ' . number_format($totalPaid, 0, ',', '.'));
+            // Get payment tolerance from settings (in smallest currency unit)
+            $paymentTolerance = $this->getPaymentTolerance();
+
+            // Strict validation: payment must match bill within tolerance
+            // This prevents payment bypass while allowing for rounding differences
+            $difference = abs($totalPaid - $totalBill);
+
+            if ($difference > $paymentTolerance) {
+                throw new \Exception(
+                    "Total pembayaran tidak sesuai dengan tagihan. " .
+                    "Tagihan: Rp " . number_format($totalBill, 0, ',', '.') . ", " .
+                    "Dibayar: Rp " . number_format($totalPaid, 0, ',', '.') . ", " .
+                    "Selisih: Rp " . number_format($difference, 0, ',', '.')
+                );
+            }
+
+            // Validate card info is provided for card payments
+            foreach ($validated['payments'] as $index => $paymentData) {
+                $paymentMethod = PaymentMethod::from($paymentData['payment_method']);
+
+                if ($paymentMethod->requiresCardInfo()) {
+                    if (empty($paymentData['card_number_last4'])) {
+                        throw new \Exception("4 digit terakhir kartu diperlukan untuk pembayaran {$paymentMethod->label()}.");
+                    }
+                    if (empty($paymentData['card_holder_name'])) {
+                        throw new \Exception("Nama pemegang kartu diperlukan untuk pembayaran {$paymentMethod->label()}.");
+                    }
+                }
             }
 
             // Create payment records
+            $paymentMethods = [];
             foreach ($validated['payments'] as $paymentData) {
                 \App\Models\Payment::create([
                     'property_id' => $property->id,
@@ -411,10 +476,12 @@ class FrontOfficeController extends Controller
                     'bank_name' => $paymentData['bank_name'] ?? null,
                     'reference_number' => $paymentData['reference_number'] ?? null,
                     'notes' => $paymentData['notes'] ?? null,
-                    'status' => 'completed',
+                    'status' => PaymentStatus::COMPLETED->value,
                     'payment_date' => now(),
                     'processed_by' => $user->id,
                 ]);
+
+                $paymentMethods[] = PaymentMethod::from($paymentData['payment_method'])->label();
             }
 
             // Update room stay payment status
@@ -423,7 +490,7 @@ class FrontOfficeController extends Controller
                 'paid_amount' => $totalPaid,
             ]);
 
-            // Process checkout
+            // Process checkout (marks room as dirty, updates status)
             $this->frontOfficeService->checkOut($roomStay);
 
             // Log activity
@@ -431,20 +498,31 @@ class FrontOfficeController extends Controller
                 'user_id' => auth()->id(),
                 'property_id' => $property->id,
                 'action' => 'update',
-                'description' => auth()->user()->name . " melakukan check-out tamu {$roomStay->guest->full_name}, kamar {$roomStay->hotelRoom->room_number}, total tagihan: Rp " . number_format($totalBill, 0, ',', '.') . ", pembayaran: " . collect($validated['payments'])->pluck('payment_method')->implode(', ') . ", konfirmasi: {$roomStay->confirmation_number}",
+                'description' => auth()->user()->name . " melakukan check-out tamu {$roomStay->guest->full_name}, kamar {$roomStay->hotelRoom->room_number}, total tagihan: Rp " . number_format($totalBill, 0, ',', '.') . ", pembayaran: " . implode(', ', $paymentMethods) . ", konfirmasi: {$roomStay->confirmation_number}",
                 'loggable_id' => $roomStay->id,
                 'loggable_type' => RoomStay::class,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ]);
 
+            DB::commit();
+
             return redirect()->route('frontoffice.invoice', $roomStay)
                 ->with('success', "Check-out berhasil untuk kamar {$roomStay->hotelRoom->room_number}");
 
         } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to process checkout', [
+                'user_id' => auth()->id(),
+                'property_id' => $property->id,
+                'room_stay_id' => $roomStay->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return redirect()->back()
                 ->withInput()
-                ->with('error', 'Gagal melakukan check-out: ' . $e->getMessage());
+                ->with('error', $e->getMessage() ?: 'Gagal melakukan check-out. Silakan coba lagi atau hubungi administrator.');
         }
     }
 
@@ -590,10 +668,18 @@ class FrontOfficeController extends Controller
      */
     public function showExtendStay(RoomStay $roomStay)
     {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Validate property ownership
+        if ($roomStay->property_id !== $property->id) {
+            abort(403, 'Anda tidak memiliki akses ke room stay ini.');
+        }
+
         $roomStay->load(['guest', 'hotelRoom.roomType.pricingRule', 'property']);
 
         // Ensure room stay is active
-        if ($roomStay->status !== 'checked_in') {
+        if ($roomStay->status !== RoomStayStatus::CHECKED_IN->value) {
             return redirect()->back()
                 ->with('error', 'Hanya tamu yang sedang menginap yang bisa diperpanjang.');
         }
@@ -623,8 +709,8 @@ class FrontOfficeController extends Controller
             $newCheckOutDate = Carbon::parse($validated['new_check_out_date']);
             $additionalNights = $oldCheckOutDate->diffInDays($newCheckOutDate);
             $additionalCharge = $roomStay->room_rate_per_night * $additionalNights;
-            $additionalTax = $additionalCharge * 0.10;
-            $additionalService = $additionalCharge * 0.05;
+            $additionalTax = $this->calculateTax($additionalCharge);
+            $additionalService = $this->calculateServiceCharge($additionalCharge);
 
             // Record the change
             RoomChange::create([
@@ -680,16 +766,23 @@ class FrontOfficeController extends Controller
      */
     public function showChangeRoom(RoomStay $roomStay)
     {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Validate property ownership
+        if ($roomStay->property_id !== $property->id) {
+            abort(403, 'Anda tidak memiliki akses ke room stay ini.');
+        }
+
         $roomStay->load(['guest', 'hotelRoom.roomType', 'property']);
 
         // Ensure room stay is active
-        if ($roomStay->status !== 'checked_in') {
+        if ($roomStay->status !== RoomStayStatus::CHECKED_IN->value) {
             return redirect()->back()
                 ->with('error', 'Hanya tamu yang sedang menginap yang bisa pindah kamar.');
         }
 
         // Get available rooms
-        $property = $roomStay->property;
         $availableRooms = $property->hotelRooms()
             ->available()
             ->where('id', '!=', $roomStay->hotel_room_id)
@@ -780,8 +873,8 @@ class FrontOfficeController extends Controller
 
             $roomStay->update([
                 'total_room_charge' => $newTotalCharge,
-                'tax_amount' => $newTotalCharge * 0.10,
-                'service_charge' => $newTotalCharge * 0.05,
+                'tax_amount' => $this->calculateTax($newTotalCharge),
+                'service_charge' => $this->calculateServiceCharge($newTotalCharge),
             ]);
 
             // Log activity
@@ -832,30 +925,38 @@ class FrontOfficeController extends Controller
      */
     public function groupCheckIn(Request $request)
     {
+        $user = auth()->user();
+        $property = $user->property;
+
+        if (!$property) {
+            abort(403, 'Akun Anda tidak terikat dengan properti manapun.');
+        }
+
         $validated = $request->validate([
             'group_name' => 'required|string|max:255',
             'check_in_date' => 'required|date',
             'check_out_date' => 'required|date|after:check_in_date',
-            'source' => 'required|in:walk_in,ota,ta,corporate,government,compliment,house_use,affiliate,online',
-            'special_requests' => 'nullable|string',
-            'rooms' => 'required|array|min:1',
-            'rooms.*.hotel_room_id' => 'required|exists:hotel_rooms,id',
-            'rooms.*.room_rate_per_night' => 'required|numeric|min:0',
-            'rooms.*.adults' => 'required|integer|min:1',
-            'rooms.*.children' => 'nullable|integer|min:0',
+            'source' => ['required', Rule::in(BookingSource::values())],
+            'special_requests' => 'nullable|string|max:1000',
+            'rooms' => 'required|array|min:1|max:50',
+            'rooms.*.hotel_room_id' => [
+                'required',
+                'exists:hotel_rooms,id',
+                Rule::exists('hotel_rooms', 'id')->where('property_id', $property->id),
+            ],
+            'rooms.*.room_rate_per_night' => 'required|numeric|min:0|max:999999999',
+            'rooms.*.adults' => 'required|integer|min:1|max:20',
+            'rooms.*.children' => 'nullable|integer|min:0|max:20',
             'rooms.*.guest_first_name' => 'required|string|max:255',
             'rooms.*.guest_last_name' => 'nullable|string|max:255',
-            'rooms.*.guest_email' => 'nullable|email',
+            'rooms.*.guest_email' => 'nullable|email|max:255',
             'rooms.*.guest_phone' => 'required|string|max:20',
-            'rooms.*.guest_id_type' => 'required|in:ktp,passport,sim,other',
+            'rooms.*.guest_id_type' => ['required', Rule::in(GuestIdType::values())],
             'rooms.*.guest_id_number' => 'required|string|max:50',
         ]);
 
         try {
             DB::beginTransaction();
-
-            $user = auth()->user();
-            $property = $user->property;
             $checkInDate = Carbon::parse($validated['check_in_date']);
             $checkOutDate = Carbon::parse($validated['check_out_date']);
             $nights = $checkInDate->diffInDays($checkOutDate);
@@ -884,8 +985,8 @@ class FrontOfficeController extends Controller
                 }
 
                 $totalRoomCharge = $roomData['room_rate_per_night'] * $nights;
-                $taxAmount = $totalRoomCharge * 0.10;
-                $serviceCharge = $totalRoomCharge * 0.05;
+                $taxAmount = $this->calculateTax($totalRoomCharge);
+                $serviceCharge = $this->calculateServiceCharge($totalRoomCharge);
 
                 // Create room stay
                 $roomStay = RoomStay::create([
@@ -941,9 +1042,16 @@ class FrontOfficeController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Failed to process group check-in', [
+                'user_id' => auth()->id(),
+                'property_id' => $property->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return redirect()->back()
                 ->withInput()
-                ->with('error', 'Gagal melakukan group check-in: ' . $e->getMessage());
+                ->with('error', 'Gagal melakukan group check-in. Silakan coba lagi atau hubungi administrator.');
         }
     }
 }

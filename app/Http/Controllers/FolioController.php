@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\RoomStay;
 use App\Models\Property;
+use App\Enums\RoomStayStatus;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class FolioController extends Controller
 {
@@ -14,25 +16,51 @@ class FolioController extends Controller
      */
     public function show(RoomStay $roomStay)
     {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Validate property ownership
+        if ($roomStay->property_id !== $property->id) {
+            abort(403, 'Anda tidak memiliki akses ke folio ini.');
+        }
+
+        // Eager load all relationships to prevent N+1 queries
         $roomStay->load([
             'guest',
             'hotelRoom.roomType',
             'property',
-            'fnbOrders.items.menuItem',
+            'fnbOrders' => function ($query) {
+                $query->with('items.menuItem');
+            },
             'payments',
             'checkedInBy',
             'checkedOutBy',
         ]);
 
-        // Calculate folio summary
+        // Calculate folio summary using aggregates to avoid loading all records
         $roomCharges = $roomStay->total_room_charge;
         $breakfastCharges = $roomStay->total_breakfast_charge ?? 0;
-        $fnbSubtotal = $roomStay->fnbOrders->sum('subtotal');
+
+        // Use aggregate queries instead of loading all records
+        $fnbAggregates = DB::table('fnb_orders')
+            ->where('room_stay_id', $roomStay->id)
+            ->selectRaw('
+                COALESCE(SUM(subtotal), 0) as fnb_subtotal,
+                COALESCE(SUM(tax_amount), 0) as fnb_tax,
+                COALESCE(SUM(service_charge), 0) as fnb_service,
+                COALESCE(SUM(total_amount), 0) as fnb_total
+            ')
+            ->first();
+
+        $fnbSubtotal = $fnbAggregates->fnb_subtotal ?? 0;
+        $fnbTax = $fnbAggregates->fnb_tax ?? 0;
+        $fnbService = $fnbAggregates->fnb_service ?? 0;
+        $fnbCharges = $fnbAggregates->fnb_total ?? 0;
+
         $subtotal = $roomCharges + $breakfastCharges + $fnbSubtotal;
-        $taxAmount = $roomStay->tax_amount + $roomStay->fnbOrders->sum('tax_amount');
-        $serviceCharge = $roomStay->service_charge + $roomStay->fnbOrders->sum('service_charge');
+        $taxAmount = $roomStay->tax_amount + $fnbTax;
+        $serviceCharge = $roomStay->service_charge + $fnbService;
         $totalCharges = $subtotal + $taxAmount + $serviceCharge - ($roomStay->discount_amount ?? 0);
-        $fnbCharges = $roomStay->fnbOrders->sum('total_amount'); // For display purposes
         $totalPayments = $roomStay->payments->sum('amount');
         $balance = $totalCharges - $totalPayments;
 
@@ -66,25 +94,51 @@ class FolioController extends Controller
      */
     public function print(RoomStay $roomStay)
     {
+        $user = auth()->user();
+        $property = $user->property;
+
+        // Validate property ownership
+        if ($roomStay->property_id !== $property->id) {
+            abort(403, 'Anda tidak memiliki akses ke folio ini.');
+        }
+
+        // Eager load all relationships to prevent N+1 queries
         $roomStay->load([
             'guest',
             'hotelRoom.roomType',
             'property',
-            'fnbOrders.items.menuItem',
+            'fnbOrders' => function ($query) {
+                $query->with('items.menuItem');
+            },
             'payments',
             'checkedInBy',
             'checkedOutBy',
         ]);
 
-        // Calculate folio summary
+        // Calculate folio summary using aggregates
         $roomCharges = $roomStay->total_room_charge;
         $breakfastCharges = $roomStay->total_breakfast_charge ?? 0;
-        $fnbSubtotal = $roomStay->fnbOrders->sum('subtotal');
+
+        // Use aggregate queries instead of loading all records
+        $fnbAggregates = DB::table('fnb_orders')
+            ->where('room_stay_id', $roomStay->id)
+            ->selectRaw('
+                COALESCE(SUM(subtotal), 0) as fnb_subtotal,
+                COALESCE(SUM(tax_amount), 0) as fnb_tax,
+                COALESCE(SUM(service_charge), 0) as fnb_service,
+                COALESCE(SUM(total_amount), 0) as fnb_total
+            ')
+            ->first();
+
+        $fnbSubtotal = $fnbAggregates->fnb_subtotal ?? 0;
+        $fnbTax = $fnbAggregates->fnb_tax ?? 0;
+        $fnbService = $fnbAggregates->fnb_service ?? 0;
+        $fnbCharges = $fnbAggregates->fnb_total ?? 0;
+
         $subtotal = $roomCharges + $breakfastCharges + $fnbSubtotal;
-        $taxAmount = $roomStay->tax_amount + $roomStay->fnbOrders->sum('tax_amount');
-        $serviceCharge = $roomStay->service_charge + $roomStay->fnbOrders->sum('service_charge');
+        $taxAmount = $roomStay->tax_amount + $fnbTax;
+        $serviceCharge = $roomStay->service_charge + $fnbService;
         $totalCharges = $subtotal + $taxAmount + $serviceCharge - ($roomStay->discount_amount ?? 0);
-        $fnbCharges = $roomStay->fnbOrders->sum('total_amount'); // For display purposes
         $totalPayments = $roomStay->payments->sum('amount');
         $balance = $totalCharges - $totalPayments;
 
