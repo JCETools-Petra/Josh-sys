@@ -1,0 +1,399 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller; // <-- Ini memperbaiki error "Controller not found"
+use App\Models\Property;
+use App\Models\DailyIncome;
+use App\Models\RevenueTarget;
+use App\Models\Booking;
+use App\Models\DailyOccupancy;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
+use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
+use App\Events\OccupancyUpdated;
+use App\Http\Traits\CalculatesBarPrices;
+
+// Pastikan nama class-nya adalah PropertyController
+class PropertyController extends Controller
+{
+    use CalculatesBarPrices;
+
+    public function __construct()
+    {
+        // Apply admin middleware to all methods except read-only methods
+        $this->middleware(function ($request, $next) {
+            if (auth()->user()->role !== 'admin') {
+                abort(403, 'Akses ditolak. Hanya admin yang dapat melakukan aksi ini.');
+            }
+            return $next($request);
+        })->except(['index', 'show', 'showComparisonForm', 'showComparisonResults']);
+    }
+
+    /**
+     * Menampilkan daftar semua properti.
+     */
+    public function index(Request $request)
+    {
+        $query = Property::orderBy('id', 'asc');
+        if ($request->has('search') && $request->search != '') {
+            // Sanitize search input to prevent SQL injection
+            $searchTerm = str_replace(['%', '_'], ['\%', '\_'], $request->search);
+            $query->where('name', 'like', '%' . $searchTerm . '%');
+        }
+        $properties = $query->paginate(15);
+        return view('admin.properties.index', compact('properties'));
+    }
+
+    /**
+     * Menampilkan form untuk membuat properti baru.
+     */
+    public function create()
+    {
+        return view('admin.properties.create');
+    }
+
+    /**
+     * Menyimpan properti baru ke database.
+     */
+    public function store(Request $request)
+    {
+        $this->authorize('manage-data');
+
+        // Validasi yang benar untuk store
+        $validatedData = $request->validate([
+            'name' => 'required|string|max:255|unique:properties,name',
+            'chart_color' => 'nullable|string|size:7|starts_with:#',
+            'address' => 'nullable|string',
+            'phone_number' => 'nullable|string|max:20', // <-- Validasi HP
+            'total_rooms' => 'required|integer|min:0',
+            'bar_1' => 'nullable|integer',
+            'bar_2' => 'nullable|integer',
+            'bar_3' => 'nullable|integer',
+            'bar_4' => 'nullable|integer',
+            'bar_5' => 'nullable|integer',
+        ]);
+
+        Property::create($validatedData);
+        return redirect()->route('admin.properties.index')->with('success', 'Properti baru berhasil ditambahkan.');
+    }
+
+    /**
+     * Menampilkan detail sebuah properti.
+     */
+    public function show(Property $property, Request $request)
+    {
+        // Logika baru untuk mengambil data okupansi berdasarkan tanggal
+        $selectedDate = $request->query('date', today()->toDateString());
+        $occupancy = DailyOccupancy::firstOrCreate(
+            [
+                'property_id' => $property->id,
+                'date' => $selectedDate,
+            ],
+            ['occupied_rooms' => 0]
+        );
+
+        // Logika lama Anda untuk pendapatan
+        $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date'))->startOfDay() : null;
+        $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : null;
+        $displayStartDate = $startDate ?: Carbon::now()->startOfMonth();
+        $displayEndDate = $endDate ?: Carbon::now()->endOfMonth();
+
+        $incomeCategories = [
+            'offline_room_income' => 'Walk In Guest', 'online_room_income' => 'OTA', 'ta_income' => 'TA/Travel Agent',
+            'gov_income' => 'Gov/Government', 'corp_income' => 'Corp/Corporation', 'compliment_income' => 'Compliment',
+            'house_use_income' => 'House Use', 'afiliasi_room_income' => 'Afiliasi',
+            'mice_income' => 'MICE', 'fnb_income' => 'F&B', 'others_income' => 'Lainnya',
+        ];
+
+        $dbDailyIncomeColumns = [
+            'offline_room_income', 'online_room_income', 'ta_income', 'gov_income', 'corp_income', 'compliment_income',
+            'house_use_income', 'afiliasi_room_income', 'breakfast_income', 'lunch_income', 'dinner_income', 'others_income',
+            'offline_rooms', 'online_rooms', 'ta_rooms', 'gov_rooms', 'corp_rooms', 'compliment_rooms', 'house_use_rooms', 'afiliasi_rooms'
+        ];
+        
+        $dailyIncomesData = DailyIncome::where('property_id', $property->id)
+            ->whereBetween('date', [$displayStartDate, $displayEndDate])
+            ->get()->keyBy(fn($item) => Carbon::parse($item->date)->toDateString());
+
+        $dailyMiceFromBookings = Booking::where('property_id', $property->id)
+            ->where('status', 'Booking Pasti')
+            ->whereBetween('event_date', [$displayStartDate, $displayEndDate])
+            ->select(DB::raw('DATE(event_date) as date'), DB::raw('SUM(total_price) as total_mice'))
+            ->groupBy('date')->get()->keyBy(fn($item) => Carbon::parse($item->date)->toDateString());
+
+        $period = CarbonPeriod::create($displayStartDate, $displayEndDate);
+        
+        $fullDateRangeData = collect($period)->map(function ($date) use ($dailyIncomesData, $dailyMiceFromBookings, $dbDailyIncomeColumns) {
+            $dateString = $date->toDateString();
+            $income = $dailyIncomesData->get($dateString);
+            $mice = $dailyMiceFromBookings->get($dateString);
+            $dayData = new \stdClass();
+            $dayData->date = $date->toDateTimeString();
+            $dayData->id = $income->id ?? null;
+            foreach ($dbDailyIncomeColumns as $column) {
+                $dayData->{$column} = $income->{$column} ?? 0;
+            }
+            $dayData->mice_booking_total = $mice->total_mice ?? 0;
+            $dayData->mice_income = $dayData->mice_booking_total;
+            return $dayData;
+        });
+
+        $totalPropertyRevenueFiltered = $fullDateRangeData->sum(function($day) {
+            return ($day->offline_room_income ?? 0) + ($day->online_room_income ?? 0) + ($day->ta_income ?? 0) +
+                   ($day->gov_income ?? 0) + ($day->corp_income ?? 0) + ($day->compliment_income ?? 0) +
+                   ($day->house_use_income ?? 0) + ($day->afiliasi_room_income ?? 0) +
+                   ($day->breakfast_income ?? 0) + ($day->lunch_income ?? 0) + ($day->dinner_income ?? 0) +
+                   ($day->others_income ?? 0) + ($day->mice_booking_total ?? 0);
+        });
+        
+        $sourceDistribution = new \stdClass();
+        foreach (array_keys($incomeCategories) as $key) {
+            $sourceDistribution->{'total_' . $key} = 0;
+        }
+
+        $sourceDistribution->total_fnb_income = $fullDateRangeData->sum(fn($day) => ($day->breakfast_income ?? 0) + ($day->lunch_income ?? 0) + ($day->dinner_income ?? 0));
+        $sourceDistribution->total_mice_income = $fullDateRangeData->sum('mice_booking_total');
+        $sourceDistribution->total_offline_room_income = $fullDateRangeData->sum('offline_room_income');
+        $sourceDistribution->total_online_room_income = $fullDateRangeData->sum('online_room_income');
+        $sourceDistribution->total_ta_income = $fullDateRangeData->sum('ta_income');
+        $sourceDistribution->total_gov_income = $fullDateRangeData->sum('gov_income');
+        $sourceDistribution->total_corp_income = $fullDateRangeData->sum('corp_income');
+        $sourceDistribution->total_compliment_income = $fullDateRangeData->sum('compliment_income');
+        $sourceDistribution->total_house_use_income = $fullDateRangeData->sum('house_use_income');
+        $sourceDistribution->total_afiliasi_room_income = $fullDateRangeData->sum('afiliasi_room_income');
+        $sourceDistribution->total_others_income = $fullDateRangeData->sum('others_income');
+        
+        $dailyTrend = $fullDateRangeData->map(function($day) {
+            $total = ($day->offline_room_income ?? 0) + ($day->online_room_income ?? 0) + ($day->ta_income ?? 0) +
+                     ($day->gov_income ?? 0) + ($day->corp_income ?? 0) + ($day->compliment_income ?? 0) +
+                     ($day->house_use_income ?? 0) + ($day->afiliasi_room_income ?? 0) +
+                     ($day->breakfast_income ?? 0) + ($day->lunch_income ?? 0) + ($day->dinner_income ?? 0) +
+                     ($day->others_income ?? 0) + ($day->mice_booking_total ?? 0);
+            return ['date' => $day->date, 'total_daily_income' => $total];
+        });
+        
+        $targetMonth = $displayEndDate->copy()->startOfMonth();
+        $revenueTarget = RevenueTarget::where('property_id', $property->id)->where('month_year', $targetMonth->format('Y-m-d'))->first();
+        $monthlyTarget = $revenueTarget->target_amount ?? 0;
+        $daysInMonth = $displayEndDate->daysInMonth;
+        $dailyTarget = $daysInMonth > 0 ? $monthlyTarget / $daysInMonth : 0;
+        
+        $lastDayData = $fullDateRangeData->sortByDesc('date')->first();
+        $lastDayIncome = 0;
+        if ($lastDayData) {
+            $trendForLastDay = collect($dailyTrend)->firstWhere('date', $lastDayData->date);
+            $lastDayIncome = $trendForLastDay ? $trendForLastDay['total_daily_income'] : 0;
+        }
+        
+        $dailyTargetAchievement = $dailyTarget > 0 ? ($lastDayIncome / $dailyTarget) * 100 : 0;
+        
+        $incomes = $fullDateRangeData;
+
+        return view('admin.properties.show', compact(
+            'property', 'incomes', 'dailyTrend', 'sourceDistribution', 'totalPropertyRevenueFiltered',
+            'startDate', 'endDate', 'displayStartDate', 'displayEndDate', 'incomeCategories',
+            'dailyTarget', 'lastDayIncome', 'dailyTargetAchievement',
+            'occupancy', 'selectedDate' 
+        ));
+    }
+
+    /**
+     * Method baru untuk update okupansi oleh Admin.
+     */
+    public function updateOccupancy(Request $request, Property $property)
+    {
+        $validated = $request->validate([
+            'date' => 'required|date',
+            'occupied_rooms' => 'required|integer|min:0',
+        ]);
+
+        // 1. Ambil atau buat data okupansi harian
+        $dailyOccupancy = DailyOccupancy::firstOrCreate(
+            [
+                'property_id' => $property->id,
+                'date' => $validated['date'],
+            ],
+            [
+                'occupied_rooms' => 0,
+                'reservasi_ota' => 0,
+                'reservasi_properti' => 0,
+            ]
+        );
+
+        // 2. Update occupied_rooms
+        $totalOccupiedRooms = $validated['occupied_rooms'];
+        $dailyOccupancy->occupied_rooms = $totalOccupiedRooms;
+        $dailyOccupancy->save();
+
+        // 3. Tentukan BAR Level baru (angka 1-5)
+        $activeBarLevel = $this->getActiveBarLevel($totalOccupiedRooms, $property);
+
+        // 4. Tentukan NAMA BAR baru (string "bar_1", "bar_2", dll)
+        $newActiveBarName = $this->getActiveBarName($activeBarLevel);
+
+        // 5. Set nilai 'bar_active' baru dan simpan
+        $property->bar_active = $newActiveBarName;
+        $property->save();
+
+        // 6. SELALU KIRIM NOTIFIKASI setiap kali okupansi diupdate
+        event(new OccupancyUpdated($property, $dailyOccupancy));
+
+        return redirect()->route('admin.properties.show', ['property' => $property->id, 'date' => $validated['date']])
+                         ->with('success', 'Okupansi berhasil diperbarui.');
+    }
+    
+    public function edit(Property $property)
+    {
+        return view('admin.properties.edit', compact('property'));
+    }
+
+    public function update(Request $request, Property $property)
+    {
+        $this->authorize('manage-data');
+
+        // Validasi yang benar untuk update
+        $validatedData = $request->validate([
+            'name' => ['required', 'string', 'max:255', Rule::unique('properties')->ignore($property->id)],
+            'chart_color' => 'nullable|string|size:7|starts_with:#',
+            'address' => 'nullable|string',
+            'phone_number' => 'nullable|string|max:20', // <-- Validasi HP
+            'total_rooms' => 'required|integer|min:0',
+            'bar_1' => 'nullable|integer',
+            'bar_2' => 'nullable|integer',
+            'bar_3' => 'nullable|integer',
+            'bar_4' => 'nullable|integer',
+            'bar_5' => 'nullable|integer',
+        ]);
+
+        $property->update($validatedData);
+        return redirect()->route('admin.properties.index')->with('success', 'Data properti berhasil diperbarui.');
+    }
+
+    public function destroy(Property $property)
+    {
+        $this->authorize('manage-data');
+
+        if ($property->dailyIncomes()->exists()) {
+            return redirect()->route('admin.properties.index')
+                ->with('error', 'Properti tidak dapat dihapus karena memiliki data pendapatan terkait.');
+        }
+        $property->delete();
+        return redirect()->route('admin.properties.index')
+            ->with('success', 'Properti berhasil dihapus.');
+    }
+    
+    public function showComparisonForm()
+    {
+        $properties = Property::orderBy('name')->get();
+        return view('admin.properties.compare_form', compact('properties'));
+    }
+
+    public function showComparisonResults(Request $request)
+    {
+        $validated = $request->validate([
+            'property_ids'   => 'required|array|min:1',
+            'property_ids.*' => 'exists:properties,id',
+            'start_date'     => 'required|date',
+            'end_date'       => 'required|date|after_or_equal:start_date',
+        ]);
+
+        $propertyIds = $validated['property_ids'];
+        $startDate = $validated['start_date'];
+        $endDate = $validated['end_date'];
+
+        $properties = Property::whereIn('id', $propertyIds)->get();
+
+        // 1. Ambil data pendapatan dari DailyIncome (TANPA MICE)
+        $incomeResults = DailyIncome::whereIn('property_id', $propertyIds)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->groupBy('property_id')
+            ->select(
+                'property_id',
+                DB::raw('SUM(offline_room_income) as offline_revenue, SUM(offline_rooms) as offline_rooms'),
+                DB::raw('SUM(online_room_income) as online_revenue, SUM(online_rooms) as online_rooms'),
+                DB::raw('SUM(ta_income) as ta_revenue, SUM(ta_rooms) as ta_rooms'),
+                DB::raw('SUM(gov_income) as gov_revenue, SUM(gov_rooms) as gov_rooms'),
+                DB::raw('SUM(corp_income) as corp_revenue, SUM(corp_rooms) as corp_rooms'),
+                DB::raw('SUM(afiliasi_room_income) as afiliasi_revenue, SUM(afiliasi_rooms) as afiliasi_rooms'),
+                DB::raw('SUM(total_rooms_revenue) as total_room_revenue, SUM(total_rooms_sold) as total_rooms_sold'),
+                DB::raw('SUM(total_fb_revenue) as total_fb_revenue'),
+                DB::raw('SUM(others_income) as total_others_revenue'),
+                DB::raw('AVG(occupancy) as average_occupancy'),
+                DB::raw('SUM(total_rooms_revenue) / NULLIF(SUM(total_rooms_sold), 0) as average_arr')
+            )
+            ->get()
+            ->keyBy('property_id');
+
+        // 2. Ambil data MICE dari tabel Booking
+        $miceResults = Booking::whereIn('property_id', $propertyIds)
+            ->where('status', 'Booking Pasti')
+            ->whereBetween('event_date', [$startDate, $endDate])
+            ->groupBy('property_id')
+            ->select(
+                'property_id',
+                DB::raw('SUM(total_price) as total_mice_revenue')
+            )
+            ->get()
+            ->keyBy('property_id');
+
+        // 3. Gabungkan hasil
+        $results = collect();
+        foreach ($properties as $property) {
+            $incomeData = $incomeResults->get($property->id);
+            $miceData = $miceResults->get($property->id);
+
+            $result = new \stdClass();
+            
+            $result->offline_revenue = $incomeData->offline_revenue ?? 0;
+            $result->offline_rooms = $incomeData->offline_rooms ?? 0;
+            $result->online_revenue = $incomeData->online_revenue ?? 0;
+            $result->online_rooms = $incomeData->online_rooms ?? 0;
+            $result->ta_revenue = $incomeData->ta_revenue ?? 0;
+            $result->ta_rooms = $incomeData->ta_rooms ?? 0;
+            $result->gov_revenue = $incomeData->gov_revenue ?? 0;
+            $result->gov_rooms = $incomeData->gov_rooms ?? 0;
+            $result->corp_revenue = $incomeData->corp_revenue ?? 0;
+            $result->corp_rooms = $incomeData->corp_rooms ?? 0;
+            $result->afiliasi_revenue = $incomeData->afiliasi_revenue ?? 0;
+            $result->afiliasi_rooms = $incomeData->afiliasi_rooms ?? 0;
+            $result->total_room_revenue = $incomeData->total_room_revenue ?? 0;
+            $result->total_rooms_sold = $incomeData->total_rooms_sold ?? 0;
+            $result->total_fb_revenue = $incomeData->total_fb_revenue ?? 0;
+            $result->total_others_revenue = $incomeData->total_others_revenue ?? 0;
+            $result->average_occupancy = $incomeData->average_occupancy ?? 0;
+            $result->average_arr = $incomeData->average_arr ?? 0;
+            $result->total_mice_revenue = $miceData->total_mice_revenue ?? 0;
+
+            // 4. Hitung total keseluruhan secara manual
+            $result->total_overall_revenue = 
+                ($result->total_room_revenue ?? 0) + 
+                ($result->total_fb_revenue ?? 0) + 
+                ($result->total_others_revenue ?? 0) + 
+                ($result->total_mice_revenue ?? 0); 
+
+            $results->put($property->id, $result);
+        }
+        
+        $chartData = $properties->map(function ($property) use ($results) {
+            $result = $results->get($property->id);
+            
+            return [
+                'label' => $property->name,
+                'revenue' => $result ? $result->total_overall_revenue : 0, 
+                'color' => $property->chart_color ?? sprintf('#%06X', mt_rand(0, 0xFFFFFF)),
+            ];
+        });
+        
+        return view('admin.properties.compare_results', compact(
+            'properties', 
+            'results', 
+            'startDate', 
+            'endDate',
+            'chartData'
+        ));
+    }
+}
