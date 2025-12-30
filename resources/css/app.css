@@ -1,0 +1,259 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark Mode Transitions & Base Styles */
+@layer base {
+    html {
+        transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+    }
+
+    * {
+        @apply transition-colors duration-200;
+    }
+
+    /* Dark Mode Text Colors - Make text lighter for better readability */
+    .dark {
+        color-scheme: dark;
+    }
+
+    .dark body {
+        @apply text-gray-100;
+    }
+
+    /* Ensure all headings are light in dark mode */
+    .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+        @apply text-gray-100;
+    }
+
+    /* Ensure all paragraphs are light in dark mode */
+    .dark p {
+        @apply text-gray-300;
+    }
+
+    /* Ensure all links are visible in dark mode */
+    .dark a {
+        @apply text-blue-400 hover:text-blue-300;
+    }
+
+    /* Ensure all labels are light in dark mode */
+    .dark label {
+        @apply text-gray-200;
+    }
+
+    /* Ensure all table text is light in dark mode */
+    .dark table {
+        @apply text-gray-200;
+    }
+
+    .dark th {
+        @apply text-gray-100;
+    }
+
+    .dark td {
+        @apply text-gray-300;
+    }
+
+    /* Input fields in dark mode */
+    .dark input:not([type="checkbox"]):not([type="radio"]),
+    .dark textarea,
+    .dark select {
+        @apply bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400;
+    }
+
+    .dark input:not([type="checkbox"]):not([type="radio"]):focus,
+    .dark textarea:focus,
+    .dark select:focus {
+        @apply border-blue-500 ring-blue-500;
+    }
+}
+
+/* [FIX] Menambahkan aturan khusus untuk tombol filter */
+@layer components {
+    .sidebar-nav {
+        height: calc(100vh - 4rem); /* 100% tinggi viewport dikurangi tinggi header sidebar */
+        overflow-y: auto; /* Tambahkan scroll vertikal jika kontennya panjang */
+    }
+
+    .filter-button-group .filter-button {
+        @apply relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium transition ease-in-out duration-150;
+    }
+
+    /* Gaya untuk Tombol TIDAK AKTIF */
+    .filter-button-group .filter-button:not(.active) {
+        @apply bg-white text-gray-700 hover:bg-gray-50;
+    }
+
+    /* Gaya untuk Tombol TIDAK AKTIF dalam mode gelap */
+    .dark .filter-button-group .filter-button:not(.active) {
+        @apply bg-gray-700 text-gray-200 border-gray-600 hover:bg-gray-600;
+    }
+
+    /* Gaya untuk Tombol AKTIF (berlaku di mode terang & gelap) */
+    .filter-button-group .filter-button.active {
+        @apply bg-indigo-600 text-white border-indigo-600;
+    }
+
+    /* Dark Mode Component Styles */
+    .dark .bg-white {
+        @apply bg-gray-800;
+    }
+
+    /* Card styles in dark mode */
+    .dark .shadow,
+    .dark .shadow-sm,
+    .dark .shadow-md,
+    .dark .shadow-lg {
+        @apply shadow-gray-900/50;
+    }
+
+    /* Badge/Pill styles in dark mode */
+    .dark .badge,
+    .dark .pill {
+        @apply bg-gray-700 text-gray-200;
+    }
+
+    /* Alert styles in dark mode */
+    .dark .alert-info {
+        @apply bg-blue-900/30 border-blue-700 text-blue-200;
+    }
+
+    .dark .alert-success {
+        @apply bg-green-900/30 border-green-700 text-green-200;
+    }
+
+    .dark .alert-warning {
+        @apply bg-yellow-900/30 border-yellow-700 text-yellow-200;
+    }
+
+    .dark .alert-danger {
+        @apply bg-red-900/30 border-red-700 text-red-200;
+    }
+
+    /* Sidebar specific dark mode */
+    .dark aside {
+        @apply border-gray-700;
+    }
+
+    /* Stats card text */
+    .dark .stats-card .text-gray-500,
+    .dark .stats-card .text-gray-600,
+    .dark .stats-card .text-gray-700 {
+        @apply text-gray-300;
+    }
+
+    .dark .stats-card .text-gray-900 {
+        @apply text-gray-100;
+    }
+
+    /* Dropdown menu in dark mode */
+    .dark [role="menu"] {
+        @apply bg-gray-800 border-gray-700;
+    }
+
+    .dark [role="menuitem"] {
+        @apply text-gray-200 hover:bg-gray-700;
+    }
+
+    /* Stats Cards & Alert Boxes - Global Dark Mode Fix */
+    /* Using direct CSS to avoid circular dependencies */
+
+    /* Blue colors */
+    .dark .bg-blue-50 {
+        background-color: rgb(30 58 138 / 0.3) !important;
+    }
+
+    .dark .text-blue-600 {
+        color: rgb(147 197 253) !important;
+    }
+
+    .dark .text-blue-700 {
+        color: rgb(191 219 254) !important;
+    }
+
+    /* Green colors */
+    .dark .bg-green-50 {
+        background-color: rgb(20 83 45 / 0.3) !important;
+    }
+
+    .dark .text-green-600 {
+        color: rgb(134 239 172) !important;
+    }
+
+    .dark .text-green-700 {
+        color: rgb(187 247 208) !important;
+    }
+
+    .dark .text-green-800 {
+        color: rgb(187 247 208) !important;
+    }
+
+    /* Yellow colors */
+    .dark .bg-yellow-50 {
+        background-color: rgb(113 63 18 / 0.3) !important;
+    }
+
+    .dark .text-yellow-600 {
+        color: rgb(253 224 71) !important;
+    }
+
+    .dark .text-yellow-700 {
+        color: rgb(254 240 138) !important;
+    }
+
+    /* Red colors */
+    .dark .bg-red-50 {
+        background-color: rgb(127 29 29 / 0.3) !important;
+    }
+
+    .dark .text-red-600 {
+        color: rgb(252 165 165) !important;
+    }
+
+    .dark .text-red-700 {
+        color: rgb(254 202 202) !important;
+    }
+
+    .dark .text-red-800 {
+        color: rgb(254 202 202) !important;
+    }
+
+    /* Purple colors */
+    .dark .bg-purple-50 {
+        background-color: rgb(88 28 135 / 0.3) !important;
+    }
+
+    .dark .text-purple-600 {
+        color: rgb(216 180 254) !important;
+    }
+
+    .dark .text-purple-700 {
+        color: rgb(233 213 255) !important;
+    }
+
+    /* Orange colors */
+    .dark .bg-orange-50 {
+        background-color: rgb(124 45 18 / 0.3) !important;
+    }
+
+    .dark .text-orange-600 {
+        color: rgb(253 186 116) !important;
+    }
+
+    .dark .text-orange-700 {
+        color: rgb(254 215 170) !important;
+    }
+
+    /* Indigo colors */
+    .dark .bg-indigo-50 {
+        background-color: rgb(55 48 163 / 0.3) !important;
+    }
+
+    .dark .text-indigo-600 {
+        color: rgb(165 180 252) !important;
+    }
+
+    .dark .text-indigo-700 {
+        color: rgb(199 210 254) !important;
+    }
+}
